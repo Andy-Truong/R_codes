@@ -1,0 +1,204 @@
+---
+title: "Practicum Data Cleaning"
+author: "Anh Do"
+date: "November 27, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = F)
+```
+
+```{r library}
+library(tidyverse)
+library(lubridate)
+library(ggthemes)
+library(data.table)
+library(scales)
+```
+
+```{r data, cache=T}
+workorder0 = read_csv("workorder500-0.csv", guess_max = 500000)
+workorder1 = read_csv("workorder500-1.csv", guess_max = 1500000)
+workorder1$pmclassification = as.character(workorder1$pmclassification)
+workorder2 = read_csv("workorder500-2.csv", guess_max = 900000)
+workorder2$projectdescription = as.character(workorder2$projectdescription)
+workorder3 = read_csv("workorder500-3.csv", guess_max = 500000)
+workorder3$datecreated = NA
+workorder3$datecreated = make_datetime(workorder3$datecreated)
+workorder3$dateexpected = NA
+workorder3$dateexpected = make_datetime(workorder3$dateexpected)
+workorder3$daterequested = NA
+workorder3$daterequested = make_datetime(workorder3$daterequested)
+workorder3$laststatuschange = NA
+workorder3$laststatuschange = make_datetime(workorder3$laststatuschange)
+workorder3$actualcompletiondate = as.POSIXct.Date(as.Date(workorder3$actualcompletiondate, format = "%m/%d/%Y"))
+workorder4 = read_csv("workorder500-4.csv", guess_max = 1500000)
+workorder4$projectdescription = as.character(workorder4$projectdescription)
+```
+
+```{r filter}
+workorder = workorder0 %>% 
+  full_join(workorder1) %>%
+  full_join(workorder2) %>%
+  full_join(workorder3) %>%
+  full_join(workorder4)
+
+wo = workorder %>% filter(craftdescription != "",
+                      #pmclassification != "",
+                      #pmtypedescription != "",
+                      #prioritydescription != "",
+                      !is.na(actualcompletiondate),
+                      estimatedhours != -0.5) %>%
+    select(-purposedescription, -worktypedescinfo, -requestedcompletiondate, -acctid, -addressid)
+
+#write_csv(wo, "workordercombined.csv")
+```
+
+```{r clean}
+#wo = read_csv("workordercombined.csv", guess_max = 1500000)
+
+#currentstatus
+newwo = wo %>% mutate(craftgroup = toupper(craftdescription),
+                      currentstatus = replace(currentstatus, currentstatus %in% c("Complete", 
+                                                                   "Completed", 
+                                                                   "Work Completed", 
+                                                                   "Admin Completed", 
+                                                                   "Completed (Certified)",
+                                                                   "Completed MN-FOB", 
+                                                                   "Completed MIR-FL", 
+                                                                   "Completed MN-SSA", 
+                                                                   "Completed - NAS CC",
+                                                                   "Completed GSA-Wilkie",
+                                                                   "Completed GSA-Atkins",
+                                                                   "Completed WP-MFH", 
+                                                                   "Completed NIH-NINDS",
+                                                                   "DOE Work Completed",
+                                                                   "DOE Complete QC Reviewed",
+                                                                   "Callback Completed",
+                                                                   "Completed GSA-Dyer"),
+                               "Completed"),
+              currentstatus = replace(currentstatus, currentstatus %in% c("Work In Progress", 
+                                                                   "In Progress", 
+                                                                   "Assigned/In Progress",
+                                                                   "Assigned", 
+                                                                   "In Process",
+                                                                   "Request Assigned", 
+                                                                   "Request Approved (MIR-FL)",
+                                                                   "Assigned GSA-Wilkie",
+                                                                   "Assigned WP-MFH", 
+                                                                   "DOE Assigned", 
+                                                                   "Forwarded"), 
+                               "Assigned/In Progress"),
+              currentstatus = replace(currentstatus, currentstatus %in% c("Declined", 
+                                                                   "Void", 
+                                                                   "Request Denied", 
+                                                                   "Denied", 
+                                                                   "Not Complete", 
+                                                                   "Incomplete", 
+                                                                   "Skipped - understaffed", 
+                                                                   "PM - Skipped", 
+                                                                   "qaSkipped", 
+                                                                   "facSkipped", 
+                                                                   "WO - Denied", 
+                                                                   "Not Completed"), 
+                               "Not Completed"),
+              currentstatus = replace(currentstatus, currentstatus %in% c("Waiting Funding", 
+                                                                   "Waiting More Information",
+                                                                   "Request Pending Supervisor Review", 
+                                                                   "Referred to Other Dept", 
+                                                                   "Deferred",
+                                                                   "Complete Pending",
+                                                                   "On Hold", 
+                                                                   "Complete Pending Approval", 
+                                                                   "Pending",
+                                                                   "Deferred Maintenance",
+                                                                   "Follow-up Needed - WP-MFH",
+                                                                   "WO - Deferred (IT)"),
+                               "Pending/Resources Required"),
+              currentstatus = replace(currentstatus, currentstatus %in% c("Down Time", 
+                                                                   "Archived",
+                                                                   "Complete Late",
+                                                                   "Open Extended",
+                                                                   "Parts on Order",
+                                                                   "Old PM",
+                                                                   "Obselete",
+                                                                   "(DO NOT USE THIS)",
+                                                                   "PM - Equipment Offline",
+                                                                   "Mechanical Engineering Request", 
+                                                                   "Zed"),
+                               "Others"),
+              currentstatus = replace(currentstatus, currentstatus %in% c("New Request", 
+                                                                          "Request Approved",
+                                                                          "New Work Order"), 
+                               "New Request"),
+              currentstatus = replace(currentstatus, currentstatus %in% c("PM - Redundant Action",
+                                                                   "Duplicate Request",
+                                                                   "Cancelled",
+                                                                   "Closed (Duplicate)",
+                                                                   "Closed (No Action)",
+                                                                   "Closed Work Orders"),
+                               "Closed")) %>% 
+  mutate(craftgroup = replace(craftgroup, 
+                                          grep("PLUMB|WATER|SEW|PUMP|DRAIN|BATH|RESTROO|FEMALE|TOILE|GREASE|GUTTER|VALVE|SINK|CULVERT|FLOW", craftgroup), 
+                                          "PLUMBING/RESTROOM"),
+                     craftgroup = replace(craftgroup, 
+                                          grep("FIRE|KEY|SMOKE|HYDRANT|ALARM|HEALT|LOCK|SAFE|VECTOR|ENVIRONMENTAL|EH&S|ADA|SECURITY", craftgroup), 
+                                          "HEALTH/SAFETY/SECURITY"),
+                     craftgroup = replace(craftgroup,
+                                          grep("PAINT|DOOR|WINDOW|WALL|CEIL|GATE|PHONE|HANG|CURTAIN|CARPENT|CARPET|ARMOIRE|TILE|FLOOR|STAIN|SHADE|SMELL|ROOF|EQUIP|LIGHT|BULB|MACHIN|REFRI|BATTERY|CALIB|DEVIC|APPLIANC|SUPPL|HVAC|HEAT|AIR|VENTI|TEMP|DRY|LAUNDRY|TUB|SPRAY|PEST|TV|OFFICE|FILTERS|LAMINA|MOLD|PRINT|HANDY|RACK|CLIMATE|CHILLER|SCRAP|WEAR|MIRROR|METER|PALLET|CAMERA|WOOD|1-GUESTROOM|FURNITURE|KITCHEN|ITEM|UTILIT|HUMIDITY|PARTITION", craftgroup),
+                                          "FURNITURES/UTILITIES/APPLIANCES"),
+                     craftgroup = replace(craftgroup, 
+                                          grep("REMO|FABRICA|REWORK|LIFT|ELEVA|PILL|INSTALL|CONCRETE|RENOV|HOUSE|BUILD|ASPHALT|ASBESTOS|STRUCTURE|WELDING|METAL|PORTABLES|LINENS|MASONRY|GLAZIER|STORAGE|SPACE|CONSTRUCTION|HOUS|ARCHITECT|FACILIT|FITNESS", craftgroup),
+                                          "CONSTRUCTION/BUILDING"),
+                     craftgroup = replace(craftgroup,
+                                          grep("CONTRACT", craftgroup),
+                                          "CONTRACT"),
+                     
+                     craftgroup = replace(craftgroup,
+                                          grep("ELECTR|SWITCH|POWER|GAS|ENERGY|FUEL|ORE|GENERAT|WIR", craftgroup),
+                                          "ELECTRICITY/ENERGY"),
+                     craftgroup = replace(craftgroup,
+                                          grep("SOFTWARE|HARDWARE|NETWORK|INFOR|DATA|CAB|TRANSMISSION|TRUNEST|PROGRAMMING", craftgroup),
+                                          "IT/NETWORK"),
+                     craftgroup = replace(craftgroup,
+                                          grep("TRANSP|TRUCK|VEHICL|BRAKE|EXHAUS|OIL|STEER|TIRE|COOL|HORN|MOV|PICK|TOW|FLEET|DELIVER|COURIER|RELOCA|PNEUMATIC|PNUEMATIC|TANKS|TRAVEL", craftgroup),
+                                          "VEHICLE/TRANSPORTATION/DELIVERY"),
+                     craftgroup = replace(craftgroup,
+                                          grep("PREVENT|PM|P.M.|PLANNED|ROUTINE|PREDICT|1-SCHEDULED", craftgroup),
+                                          "PREVENTIVE/SCHEDULED"),
+                     craftgroup = replace(craftgroup,
+                                          grep("CLEAN|ACUM|ACCUM|CUUM|SAN|TRASH|CAN|DEBRIS|RECYCL|DUMP|WAST|WASHI|CHEMICAL|NH3|BLEACH|JANITORIAL", craftgroup),
+                                          "CLEANING/SANITIZATION"),
+                     craftgroup = replace(craftgroup,
+                                          grep("AUDIO|BOARD|STAGE|PERFORMANCE|P/A|ADVERTISEMENT|INTERCOM|SCREEN|SEAT|SET|RESTAURANT|CULINARY|FOOD|SNACK|CAFE|LUNCH|CONCESSION|HOSPITALITY", craftgroup),
+                                          "EVENT/RECREATION/F&B"),
+                     craftgroup = replace(craftgroup,
+                                          grep("PLANT|OPERAT|CONVEY|RAMP|MECHANIC|HYDRAULIC|STEAM|BELT|MATER", craftgroup),
+                                          "PLANT/MATERIALS"),
+                     craftgroup = replace(craftgroup,
+                                          grep("TREE|TRIM|ROAD|STREET|WALK|EXTERIOR|POOL|SIGN|OUTDOOR|LANDSCAP|GROUND|ANIM|FIELD|IRRIGATION|SPRINK|MOW|YARD|GRAS|PAV|SNOW|WEED|PARK|SALT|POTHOLE|PLASTER|FLAG|TURF|WASHOUT|VIEW|DELUGE|GRAFFITI", craftgroup),
+                                          "OUTDOORS"),
+         craftgroup = replace(craftgroup, 
+                              grep("INSPECT|TEST", craftgroup), 
+                              "INSPECTION"),
+         craftgroup = replace(craftgroup, 
+                          grep("ADMIN|CLER|DOCUMENT|ASSIST|EMPLOYEE|TRAIN|PERSONNEL|LABOR|COMPLIANCE|CERTI|WARR|RESE|MEET|AUDIT", craftgroup), 
+                          "ADMIN/PERSONNEL/TRAINING"),
+         craftgroup = replace(craftgroup, 
+                              grep("BREAKDOWN|SOS|EMERGENCY|BREAKS", craftgroup), 
+                              "SOS"),
+
+         craftgroup = replace(craftgroup, grep("ALL|GENERAL|TASK|ADJUSTMENT|REQUEST|SPECIAL|CUSTOMER|EMPTY|GRADING|PROJECT|CHRISTMAS|BLEND|PROPERTY|FEMCO|CA|QUOTES|TOUR|STANDING|CALL|JAMS|ASSOC|TBD|NOT|RIGHT|SAMPLE|RECORD|OPPORTUNITY|FIX|KAIZEN|5TH|POLICE|TURN|UNIFORM|PERMIT", craftgroup), 
+                              "UNCLEAR/TBD"),
+         craftgroup = replace(craftgroup, grep("MAINT|CORRECT|MODI|REACT|DAMAGE|ORDER|ESTIMATE|OTHER|REFINISH|INQU|REPLACE|TIME|SURPLUS|DOWN|ACTION|UPDATE|IMPROVE|RISK|SUSPENSION|ENGINEERING|MISC|CA|5S|SERVICE|CUSTODI|NURSE", craftgroup), 
+                              "OTHER"),
+         craftgroup = replace(craftgroup, craftgroup %in% c("416","414","855","752","736","562","657","441","814","826","861","901","904","906","912","735","734","737","759","821","822","816","833","829","455","545","655","825","529","522","622","854","628","405","401","418","426","429", "416", "414"), "CODES"),
+         craftgroup = replace(craftgroup, craftgroup %in% c("X", "XX", "?"), "UNCLEAR/TBD"),
+         craftgroup = replace(craftgroup, craftgroup %in% c("IT", "IT/TECHNOLOGY"), "IT/NETWORK"),
+         craftgroup = replace(craftgroup, craftgroup == "BREAK IN", "HEALTH/SAFETY/SECURITY"),
+         craftgroup = replace(craftgroup, craftgroup == "ENGINE", "VEHICLE/TRANSPORTATION/DELIVERY"),
+         craftgroup = replace(craftgroup, craftgroup %in% c("F & B", "BEC EVENT", "EVENT - AFTER HOURS", "EVENT", "EVENTS", "RECREATION", "SOUND SYSTEM"), "EVENT/RECREATION/F&B"))
+
+#write_csv(newwo, "workorder_grouped.csv")
+```

@@ -123,8 +123,8 @@ asset_cost_histogram = cost_asset %>%
   geom_histogram() + 
   theme_few() +
   labs(title="Asset cost Distribution", 
-       y="Total Cost", 
-       x="Number of Assets")
+       x="Total Cost", 
+       y="Number of Assets")
 
 expensive_asset = cost_asset %>% 
   filter(TotalCost >= 100000) %>% 
@@ -132,8 +132,8 @@ expensive_asset = cost_asset %>%
   geom_histogram() + 
   theme_few() +
   labs(title="Distribution of Most expensive Asset", 
-       y="Total Cost (in Million)", 
-       x="Number of Assets")
+       x="Total Cost (in Million)", 
+       y="Number of Assets")
 
 normal_asset = cost_asset %>% 
   filter(TotalCost < 2000) %>% 
@@ -141,8 +141,8 @@ normal_asset = cost_asset %>%
   geom_histogram() + 
   theme_few() +
   labs(title="Distribution of Assets with total cost less than $2000", 
-       y="Total Cost", 
-       x="Number of Assets")
+       x="Total Cost", 
+       y="Number of Assets")
 
 asset_cost_histogram
 expensive_asset
@@ -164,7 +164,7 @@ pm_craft = newwo %>%
   coord_flip() +
   theme_few() +
   labs(title="Number of Preventive Maintenance per Craft Group", 
-       y="Total Cost (in Thousand)", 
+       y="Total Number of Work Orders", 
        x="") +
   theme(title = element_text(face="bold", size=10), 
         axis.title = element_text(face="bold"),

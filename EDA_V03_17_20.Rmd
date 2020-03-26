@@ -231,6 +231,32 @@ priority = requested %>% select(craftdescription, craftgroup, daterequested, dat
 priority
 ```
 
+```{r prioritydescription}
+newwo$prioritydescription = as.character(newwo$prioritydescription)
+newwo = newwo %>% 
+  filter(prioritydescription != "") %>%
+  mutate(prioritydescription = replace(prioritydescription, prioritydescription %in% 
+                                                      c("Safety","Critical","emergency","Critical - Immediate Response","Rush","Urgent","Critical - (Immediate)","Safety Emergency","Critical - Down","Critical (1- 2 hours)","urgent","safety","Production Line Down","Critical - Safety","A_Urgent-Critical_2 hrs","EMERGENCY W/I 2 HOURS PLEASE CALL","Emergency After-hours W/I 2 HOURS","WP - URGENT","WP - EMERGENCY","Critical; Immediate Response","1 - Critical: Important and Urgent","Safety Related","Emergency"), 
+                                                      "Emergency"),
+                         prioritydescription = replace(prioritydescription,
+                                                       prioritydescription %in% c("high - resp. 1 hr.","very high - respond","High - (ASAP - 24 Hours)","High (2- 4 hours)","High","High- Within 3 Business Days","High Priority","High; 2 days","High - Same day","2 - High: urgent and likely important","High - 15 Days","Immediate - 24 Hrs","Some Production Loss"),
+                                                      "High"),
+                         prioritydescription = replace(prioritydescription, 
+                                                       prioritydescription %in% c("Medium","Routine- Within 2 Weeks","Medium Priority","Moderate/Required","medium - resp 8 hr.","Medium - (7-14 Days)","Normal - (2-7 Days)","PM - (5+ Days)","Medium_2 days","Standard; 4 days","Medium - 1 week","Medium - 45 Days","Medium (4 - 6 hours)","3 - Medium: Important not urgent"),
+                                                      "Medium"),
+                         prioritydescription = replace(prioritydescription, 
+                                                       prioritydescription %in% c("Scheduled","Low","Spare Time","Low- Within 6 Weeks","Time-Materials Quote","low - eval. 24 hrs.","very low - eval. 1 wk","Low - (14-30 Days)","Non critical","Spare Time (8+ hours)","Project - ( 1+ Weeks)","No Production Downtime","Low Priority_Complete This Week","Routine_24 hrs","SCHEDULED PM DUE THIS DAY/WEEK/MONTH","WP - ROUTINE","Low; 6 days","Low - 1 month","5 - Minimal: Not important not urgent","6 - Project Related (Supply Date)","Managed - 1 Yr","Low - 90 Days","Routine","Low (8 - 24 hours)","4 - Low: Minor importance not urgent"),
+                                                      "Low"),
+                         prioritydescription = replace(prioritydescription, 
+                                                       prioritydescription %in% c("unknown","TBD",""," ","2012-06-28 00:00:00.0","-","*TBD","1","System Available"),
+                                                       "Other")
+                          )
+newwo$prioritydescription <- as.character(newwo$prioritydescription)
+newwo$prioritydescription [newwo$prioritydescription%in% c("3 - Medium: Important not urgent")] <- "Medium"
+#class(newwo$prioritydescription)
+view(unique(newwo$prioritydescription))
+count(newwo, newwo$prioritydescription)
+```
 
 
 ```{r costts}

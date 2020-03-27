@@ -18,7 +18,7 @@ library(scales)
 ```
 
 ```{r new, cache=T}
-newwo = read_csv("workorder_grouped.csv", guess_max = 1500000)
+newwo = read_csv("workorder_clean.csv", guess_max = 1500000)
 ```
 
 1. Requested Date
@@ -201,37 +201,3 @@ pm_asset %>%
 ```
 
 by priority description, by craft, by efficiency (predict efficiency based on craftgroup, priority, ispreventmaint - regression, tree)
-
-```{r date}
-requested = newwo %>% 
-  mutate(yearrequested = year(daterequested),
-         monthrequested = month(daterequested),
-         dayrequested = day(daterequested)) %>%
-  filter(yearrequested < 2020, yearrequested > 2000) %>%
-  mutate(ymrequested = make_date(yearrequested, monthrequested),
-         ymdrequested = make_date(yearrequested, monthrequested, dayrequested)) %>%
-  mutate(yearcompleted = year(actualcompletiondate),
-         monthcompleted = month(actualcompletiondate),
-         daycompleted = day(actualcompletiondate)) %>%
-  filter(yearcompleted < 2020, yearcompleted > 2000) %>%
-  mutate(ymcompleted = make_date(yearcompleted, monthcompleted),
-         ymdcompleted = make_date(yearcompleted, monthcompleted, daycompleted))
-
-```
-
-```{r priorityts}
-priority = requested %>% select(craftdescription, craftgroup, daterequested, datecreated, actualcompletiondate, laststatuschange, currentstatus, prioritydescription, ispreventmaint, ymrequested, ymcompleted) %>%
-  filter(currentstatus != "Others") %>%
-  filter(!(prioritydescription %in% c("-", "TBD", "Safety", "unknown", "Some Production Loss", "System Available", "Spare Time"))) %>%
-  filter(!is.na(daterequested), !is.na(datecreated), !is.na(laststatuschange)) %>%
-  mutate(createffi = as.numeric(round((datecreated - daterequested)/3600, digits = 2)),
-         totaleffi = as.numeric(round((actualcompletiondate - daterequested)/3600, digits = 2))) %>%
-  filter(totaleffi >= 0, createffi >= 0)
-
-priority
-```
-
-
-```{r costts}
-
-```

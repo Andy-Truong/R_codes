@@ -202,6 +202,7 @@ newwo = wo %>% mutate(craftgroup = toupper(craftdescription),
 
 #write_csv(newwo, "workorder_grouped.csv")
 ```
+
 ```{r prioritydesc}
 cleanwo = read_csv("workorder_grouped.csv", guess_max = 1500000)
 cleanwo$prioritydescription = as.character(cleanwo$prioritydescription)
@@ -230,3 +231,4 @@ cleanwo = cleanwo %>%
 #view(unique(cleanwo$prioritydescription))
 #count(cleanwo, cleanwo$prioritydescription)
 #write_csv(cleanwo, "workorder_clean.csv")
+```

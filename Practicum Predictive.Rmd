@@ -1,0 +1,90 @@
+---
+title: "Practicum Predictive"
+author: "Team"
+date: "3/27/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r library}
+library(tidyverse)
+library(lubridate)
+library(ggthemes)
+library(data.table)
+library(scales)
+```
+
+```{r new, cache=T}
+newwo = read_csv("workorder_clean.csv", guess_max = 1500000)
+```
+
+```{r date}
+requested = newwo %>% 
+  mutate(yearrequested = year(daterequested),
+         monthrequested = month(daterequested),
+         dayrequested = day(daterequested)) %>%
+  filter(yearrequested < 2020, yearrequested > 2000) %>%
+  mutate(ymrequested = make_date(yearrequested, monthrequested),
+         ymdrequested = make_date(yearrequested, monthrequested, dayrequested)) %>%
+  mutate(yearcompleted = year(actualcompletiondate),
+         monthcompleted = month(actualcompletiondate),
+         daycompleted = day(actualcompletiondate)) %>%
+  filter(yearcompleted < 2020, yearcompleted > 2000) %>%
+  mutate(ymcompleted = make_date(yearcompleted, monthcompleted),
+         ymdcompleted = make_date(yearcompleted, monthcompleted, daycompleted))
+
+```
+
+```{r priorityts}
+priority = requested %>% select(craftdescription, craftgroup, daterequested, datecreated, actualcompletiondate, laststatuschange, currentstatus, prioritydescription, ispreventmaint, ymrequested, ymcompleted) %>%
+  filter(currentstatus != "Others") %>%
+  filter(prioritydescription != "OTHER") %>%
+  filter(!is.na(daterequested), !is.na(datecreated), !is.na(laststatuschange)) %>%
+  mutate(createffi = abs(as.numeric(round((datecreated - daterequested)/3600), digits = 2)),
+         totaleffi = abs(as.numeric(round((actualcompletiondate - daterequested)/3600), digits = 2)))
+
+priority
+```
+
+
+```{r cost}
+zerocost = newwo %>% filter(actualcosts == 0, 
+                            currentstatus == "Completed") %>% 
+  select(craftgroup, prioritydescription) %>%
+  group_by(craftgroup) %>%
+  summarize(n = n())
+
+costdata = requested %>% filter(currentstatus %in% c("Completed", "Closed"),
+                                !is.na(daterequested), 
+                                !is.na(datecreated), 
+                                !is.na(laststatuschange)) %>%
+  filter(prioritydescription != "OTHER") %>%
+  select(actualcosts, craftgroup, daterequested, actualcompletiondate, prioritydescription, ymrequested, ymcompleted) %>% 
+  mutate(totaleffi = abs(as.numeric(round((actualcompletiondate - daterequested)/3600), digits = 2)))
+
+zerocost = costdata %>% filter(actualcosts == 0)
+nonzerocost = costdata %>% filter(actualcosts != 0)
+normalcost = costdata %>% filter(actualcosts < 3500, actualcosts > 0)
+mediumcost = costdata %>% filter(actualcosts >= 3500, actualcosts <= 10000)
+highcost = costdata %>% filter(actualcosts > 10000)
+```
+
+```{r costreg}
+regall = lm(actualcosts ~ craftgroup + totaleffi + prioritydescription, data = costdata)
+summary(regall)
+
+regnonzero = lm(actualcosts ~ craftgroup + totaleffi + prioritydescription, data = nonzerocost)
+summary(regnonzero)
+
+regnormal = lm(actualcosts ~ craftgroup + totaleffi + prioritydescription, data = normalcost)
+summary(regnormal)
+
+regmedium = lm(actualcosts ~ craftgroup + totaleffi + prioritydescription, data = mediumcost)
+summary(regmedium)
+
+reghigh = lm(actualcosts ~ craftgroup + totaleffi + prioritydescription, data = highcost)
+summary(reghigh)
+```

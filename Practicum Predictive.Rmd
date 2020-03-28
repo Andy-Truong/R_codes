@@ -40,7 +40,7 @@ requested = newwo %>%
 
 ```{r priorityts}
 priority = requested %>% select(craftdescription, craftgroup, daterequested, datecreated, actualcompletiondate, laststatuschange, currentstatus, prioritydescription, ispreventmaint, ymrequested, ymcompleted) %>%
-  filter(currentstatus != "Others") %>%
+  filter(currentstatus %in% c("Completed", "Closed")) %>%
   filter(prioritydescription != "OTHER") %>%
   filter(!is.na(daterequested), !is.na(datecreated), !is.na(laststatuschange)) %>%
   mutate(createffi = abs(as.numeric(round((datecreated - daterequested)/3600), digits = 2)),

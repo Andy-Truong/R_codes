@@ -166,14 +166,14 @@ plot(wocount_2020_HW, main = "Holtwinters Forecast for 2019-2020")
 3.2. Time Series by requested date to predict total costs
 
 ```{r setupts}
-costts = nonzerocost %>% select(actualcosts, ymrequested)
-normalcostts = normalcost %>% select(actualcosts, ymrequested)
-mediumcostts = mediumcost %>% select(actualcosts, ymrequested)
-highcostts = highcost %>% select(actualcosts, ymrequested)
+costdata = nonzerocost %>% select(actualcosts, ymrequested)
+normalcostdata = normalcost %>% select(actualcosts, ymrequested)
+mediumcostdata = mediumcost %>% select(actualcosts, ymrequested)
+highcostdata = highcost %>% select(actualcosts, ymrequested)
 ```
 
 ```{r costts}
-totalts = ts(costts$actualcosts, start = 2001, end = 2019, frequency = 12)
+totalts = ts(costdata$actualcosts, start = c(2001,1), end = c(2019,8). frequency = 12)
 ```
 
 ### Priority Time Series

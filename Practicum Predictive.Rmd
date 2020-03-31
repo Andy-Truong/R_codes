@@ -354,20 +354,6 @@ securitycount_2020_HW = forecast(securitycountts.HWmodel, 15)
 plot(securitycount_2020_HW, main = "Holtwinters Security Forecast for 2019-2020")
 ```
 
-3.2. Time Series by requested date to predict total costs
-
-```{r setupts}
-costts = nonzerocost %>% 
-  group_by(ymrequested) %>% 
-  summarize(totalcost = sum(actualcosts))
-
-#If the nonzerocost has extremes that ruin prediction, replace nonzerocost in 343 with normalcost
-```
-
-```{r costts}
-totalts = ts(costts$totalcost, start = c(2001,1), end = c(2019,8), frequency = 12)
-plot(totalts)
-```
 **3.1.4 Electricity/Energy**
 
 ```{r wocountts_predict_energy}
@@ -1220,9 +1206,7 @@ costts = nonzerocost %>%
   group_by(ymrequested) %>% 
   summarize(totalcost = sum(actualcosts))
 
-normalcostts = normalcost %>% select(actualcosts, ymrequested)
-mediumcostts = mediumcost %>% select(actualcosts, ymrequested)
-highcostts = highcost %>% select(actualcosts, ymrequested)
+#If the nonzerocost has extremes that ruin prediction, replace nonzerocost in 343 with normalcost
 ```
 
 ```{r costts}

@@ -53,7 +53,7 @@ priority
 
 ## Cost Analysis
 
-1. Subsets
+### 1. Subsets
 
 ```{r cost}
 zerocost = newwo %>% filter(actualcosts == 0, 
@@ -77,7 +77,7 @@ mediumcost = costdata %>% filter(actualcosts >= 3500, actualcosts <= 10000)
 highcost = costdata %>% filter(actualcosts > 10000)
 ```
 
-2. Regression
+### 2. Regression
 
 ```{r costreg}
 regall = lm(actualcosts ~ craftgroup + totaleffi + prioritydescription, data = costdata)
@@ -96,10 +96,10 @@ reghigh = lm(actualcosts ~ craftgroup + totaleffi + prioritydescription, data = 
 summary(reghigh)
 ```
 
-3. Time Series 
+### 3. Time Series 
 
 
-3.1. Time series by requested date to predict number of orders requested
+#### 3.1. Time series by requested date to predict number of orders requested
 
 ```{r wocount}
 wocount = nonzerocost  %>% group_by(ymrequested) %>% summarize(wocount = n())
@@ -163,7 +163,7 @@ plot(wocount_2020_HW, main = "Holtwinters Forecast for 2019-2020")
 
 To see the craft groups, use **unique(nonzerocost$craftgroup)**
 
-3.1.2 Plumbing 
+**3.1.2 Plumbing**
 
 ```{r wocountts_predict_plumbing}
 plumbcount = nonzerocost %>% filter(craftgroup == "PLUMBING/RESTROOM") %>% 
@@ -226,7 +226,7 @@ plumbcount_2020_HW = forecast(plumbcountts.HWmodel, 15)
 plot(plumbcount_2020_HW, main = "Holtwinters Plumbing Forecast for 2019-2020")
 ```
 
-3.1.3 Furniture 
+**3.1.3 Furniture**
 
 ```{r wocountts_predict_furniture}
 furniturecount = nonzerocost %>% filter(craftgroup == "FURNITURES/UTILITIES/APPLIANCES") %>% 
@@ -290,7 +290,7 @@ plot(furniturecount_2020_HW, main = "Holtwinters Furniture Forecast for 2019-202
 ```
 
 
-3.1.3 Security 
+**3.1.3 Security**
 
 ```{r wocountts_predict_security}
 securitycount = nonzerocost %>% filter(craftgroup == "HEALTH/SAFETY/SECURITY") %>% 
@@ -368,7 +368,7 @@ costts = nonzerocost %>%
 totalts = ts(costts$totalcost, start = c(2001,1), end = c(2019,8), frequency = 12)
 plot(totalts)
 ```
-**3.1.4 Electricity/Energy **
+**3.1.4 Electricity/Energy**
 
 ```{r wocountts_predict_energy}
 energycount = nonzerocost %>% filter(craftgroup == "ELECTRICITY/ENERGY") %>% 
@@ -427,7 +427,7 @@ energycount_2020_HW = forecast(energycountts.HWmodel, 15)
 plot(energycount_2020_HW, main = "Holtwinters energy Forecast for 2019-2020")
 ```
 
-**3.1.5 Outdoors **
+**3.1.5 Outdoors**
 
 ```{r wocountts_predict_outdoor}
 outdoorcount = nonzerocost %>% filter(craftgroup == "OUTDOORS") %>% 
@@ -671,7 +671,7 @@ plot(constructcount_2020_HW, main = "Holtwinters Construction Forecast for 2019-
 ```
 
 
-**3.1.9 Event/Recreation/Food and Beverages **
+**3.1.9 Event/Recreation/Food and Beverages**
 
 ```{r wocountts_predict_event}
 eventcount = nonzerocost %>% filter(craftgroup == "EVENT/RECREATION/F&B") %>% 
@@ -731,7 +731,7 @@ plot(eventcount_2020_HW, main = "Holtwinters Event Forecast for 2019-2020")
 ```
 
 
-**3.1.10 Plant and Materials **
+**3.1.10 Plant and Materials**
 
 ```{r wocountts_predict_plant}
 plantcount = nonzerocost %>% filter(craftgroup == "PLANT/MATERIALS") %>% 
@@ -791,7 +791,7 @@ plot(plantcount_2020_HW, main = "Holtwinters Plant and Materials Forecast for 20
 ```
 
 
-**3.1.11 Personnel and Training **
+**3.1.11 Personnel and Training**
 
 ```{r wocountts_predict_personnel}
 personnelcount = nonzerocost %>% filter(craftgroup == "ADMIN/PERSONNEL/TRAINING") %>% 
@@ -1033,7 +1033,7 @@ plot(ITcount_2020_HW, main = "Holtwinters IT Forecast for 2019-2020")
 ```
 
 
-**3.1.15 Contract **
+**3.1.15 Contract**
 
 ??? Check this
 
@@ -1213,7 +1213,7 @@ othercount_2020_HW = forecast(othercountts.HWmodel, 15)
 plot(othercount_2020_HW, main = "Holtwinters other Forecast for 2019-2020")
 ```
 
-### 3.2. Time Series by requested date to predict total costs
+#### 3.2. Time Series by requested date to predict total costs
 
 ```{r setupts}
 costts = nonzerocost %>% 

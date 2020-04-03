@@ -124,7 +124,8 @@ COUNT_TS_MSE = function(craftgroup) {
 
   
   train.periods = 155
-  test.periods <- 67
+  test.periods = 67
+  cycle=12
   
   ts.training <- ts(tsdata$count[1:train.periods], start = c(2001,1), end = c(2019,6), frequency = 12)
   
@@ -175,7 +176,7 @@ COUNT_TS_MSE = function(craftgroup) {
 
 #For Total Cost of Work Orders in each Craft Group
 
-COST_TS_MSE = COUNT_COUNT_TS_MSE = function(craftgroup) {
+COST_TS_MSE = function(craftgroup) {
   tsdata = nonzerocost %>% filter(craftgroup == !!craftgroup) %>% 
     group_by(ymrequested) %>% 
     summarize(totalcost = sum(actualcosts))%>%
@@ -191,7 +192,8 @@ COST_TS_MSE = COUNT_COUNT_TS_MSE = function(craftgroup) {
   
   
   train.periods = 155
-  test.periods <- 67
+  test.periods = 67
+  cycle=12
   
   ts.training <- ts(tsdata$totalcost[1:train.periods], start = c(2001,1), end = c(2019,6), frequency = 12)
   
@@ -258,7 +260,8 @@ SES.prediction = function(craftgroup) {
   
   
   train.periods = 155
-  test.periods <- 67
+  test.periods = 67
+  cycle=12
   
   ts.training <- ts(tsdata$count[1:train.periods], start = c(2001,1), end = c(2019,6), frequency = 12)
   
@@ -294,7 +297,8 @@ DES.prediction = function(craftgroup) {
   
   
   train.periods = 155
-  test.periods <- 67
+  test.periods = 67
+  cycle=12
   
   ts.training <- ts(tsdata$count[1:train.periods], start = c(2001,1), end = c(2019,6), frequency = 12)
   
@@ -330,7 +334,8 @@ HW.prediction = function(craftgroup) {
   
   
   train.periods = 155
-  test.periods <- 67
+  test.periods = 67
+  cycle=12
   
   ts.training <- ts(tsdata$count[1:train.periods], start = c(2001,1), end = c(2019,6), frequency = 12)
   
@@ -363,7 +368,7 @@ plot(wocountts)
 ```
 
 ```{r wocountts_testMSE_allcrafts}
-train.periods <- 160
+train.periods <- 155
 test.periods <- length(wocountts) - train.periods
 cycle <- 12
 
@@ -607,8 +612,6 @@ plot(othercount_2020_HW, main = "Holtwinters other Forecast for 2019-2020")
 
 3.2. Time Series by requested date to predict total costs
 
-
-
 ```{r setupts}
 costts = nonzerocost %>% 
   group_by(ymrequested) %>% 
@@ -783,7 +786,8 @@ HW.prediction.cost = function(craftgroup) {
   
   
   train.periods = 155
-  test.periods <- 67
+  test.periods = 67
+  cycle=12
   
   ts.training <- ts(tsdata$totalcost[1:train.periods], start = c(2001,1), end = c(2019,6), frequency = 12)
   

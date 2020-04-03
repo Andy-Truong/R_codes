@@ -15,6 +15,8 @@ library(lubridate)
 library(ggthemes)
 library(data.table)
 library(scales)
+library(forecast)
+library(imputeTS)
 ```
 
 ```{r new, cache=T}
@@ -623,7 +625,7 @@ plot(totalts)
 ```
 
 ```{r costfunctions}
-COST_TS_MSE = COUNT_COUNT_TS_MSE = function(craftgroup) {
+COST_TS_MSE = function(craftgroup) {
   tsdata = nonzerocost %>% filter(craftgroup == !!craftgroup) %>% 
     group_by(ymrequested) %>% 
     summarize(totalcost = sum(actualcosts))%>%
@@ -639,7 +641,8 @@ COST_TS_MSE = COUNT_COUNT_TS_MSE = function(craftgroup) {
   
   
   train.periods = 155
-  test.periods <- 67
+  test.periods = 67
+  cycle = 12
   
   ts.training <- ts(tsdata$totalcost[1:train.periods], start = c(2001,1), end = c(2019,6), frequency = 12)
   
@@ -706,7 +709,8 @@ SES.prediction.cost = function(craftgroup) {
   
   
   train.periods = 155
-  test.periods <- 67
+  test.periods = 67
+  cycle = 12
   
   ts.training <- ts(tsdata$totalcost[1:train.periods], start = c(2001,1), end = c(2019,6), frequency = 12)
   
@@ -742,7 +746,8 @@ DES.prediction.cost = function(craftgroup) {
   
   
   train.periods = 155
-  test.periods <- 67
+  test.periods = 67
+  cycle = 12
   
   ts.training <- ts(tsdata$totalcost[1:train.periods], start = c(2001,1), end = c(2019,6), frequency = 12)
   

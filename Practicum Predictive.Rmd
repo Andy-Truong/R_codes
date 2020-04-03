@@ -484,7 +484,7 @@ DES.prediction("CONSTRUCTION/BUILDING")
 ```
 
 
-**3.1.9 Event/Recreation/Food and Beverages **
+**3.1.9 Event/Recreation/Food and Beverages**
 
 ```{r wocountts_predict_event}
 COUNT_TS_MSE("EVENT/RECREATION/F&B")
@@ -493,7 +493,7 @@ HW.prediction("EVENT/RECREATION/F&B")
 ```
 
 
-**3.1.10 Plant and Materials **
+**3.1.10 Plant and Materials**
 
 ```{r wocountts_predict_plant}
 COUNT_TS_MSE("PLANT/MATERIALS")
@@ -501,7 +501,7 @@ COUNT_TS_MSE("PLANT/MATERIALS")
 HW.prediction("PLANT/MATERIALS")
 ```
 
-**3.1.11 Personnel and Training **
+**3.1.11 Personnel and Training**
 
 ```{r wocountts_predict_personnel}
 COUNT_TS_MSE("ADMIN/PERSONNEL/TRAINING")
@@ -534,7 +534,7 @@ HW.prediction("IT/NETWORK")
 ```
 
 
-**3.1.15 Contract **
+**3.1.15 Contract**
 
 ```{r wocountts_predict_contract}
 COUNT_TS_MSE("CONTRACT")

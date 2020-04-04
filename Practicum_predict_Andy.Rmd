@@ -1,0 +1,384 @@
+---
+title: "Practicum Data Cleaning"
+author: "Anh Do"
+date: "November 9, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = F)
+```
+
+```{r library}
+library(tidyverse)
+library(lubridate)
+library(ggthemes)
+library(data.table)
+library(scales)
+```
+
+```{r new, cache=T}
+newwo = read_csv("../Dude_data/workorder_grouped.csv", guess_max = 1800000)
+
+#newwo = read_csv("C:/Users/andyt/Desktop/KSB-621/Dude_data/workorder_grouped.csv")
+```
+
+1. Requested Date
+
+#For time series, useful for descriptive but may not be useful for predictive unless we do per account
+
+```{r requestdate}
+requested = newwo %>% 
+  mutate(yearrequested = year(daterequested),
+         monthrequested = month(datecreated),
+         dayrequested = day(datecreated)) %>%
+  filter(yearrequested < 2020, yearrequested > 2000) %>%
+  mutate(ymrequested = make_date(yearrequested, monthrequested),
+         ymdrequested = make_date(yearrequested, monthrequested, dayrequested)) 
+
+request_count = requested %>%
+  group_by(ymrequested) %>%
+  summarize(count = n())
+request_count
+
+request_craft = requested %>%
+  group_by(craftgroup, ymrequested) %>%
+  summarise(count = n()) 
+request_craft
+
+request_customer = requested %>%
+  group_by(ymdrequested, dudecustomerid) %>%
+  summarize(count = n()) %>%
+  arrange(dudecustomerid)
+request_customer
+```
+
+```{r requestts}
+request_craft %>% 
+  ggplot(aes(x=ymrequested, y=count)) +
+  geom_line() + theme_few()
+```
+
+2. Cost per Craft group
+
+```{r cost}
+cost_craft = newwo %>% filter(actualcosts < 1000000000) %>%
+  group_by(craftgroup) %>%
+  summarise(TotalCost = round(sum(actualcosts)/1000000, digits = 4)) %>%
+  arrange(desc(TotalCost)) %>% 
+  ggplot(aes(x=reorder(craftgroup, TotalCost), y=TotalCost)) + 
+  geom_bar(stat="identity") +
+  guides(fill=F) +
+  coord_flip() +
+  theme_few() +
+  labs(title="Total Cost per Craft Group", 
+       y="Total Cost (in Million)", 
+       x="") +
+  theme(title = element_text(face="bold"), 
+        axis.title = element_text(face="bold"),
+        panel.border = element_blank(), 
+        axis.line.x = element_line(colour="grey80"), 
+        axis.line.y = element_line(colour="grey80"),
+        axis.ticks  = element_blank()) +
+  scale_y_continuous(labels = dollar)
+  
+cost_craft
+
+high_furniture_cost = newwo %>% filter(craftgroup == "FURNITURES/UTILITIES/APPLIANCES") %>%
+  group_by(craftdescription) %>%
+  summarise(TotalCost = round(sum(actualcosts)/1000000, digits = 4)) %>%
+  arrange(desc(TotalCost)) %>% 
+  filter(TotalCost > 10) %>%
+  ggplot(aes(x=reorder(craftdescription, TotalCost), y=TotalCost)) + 
+  geom_bar(stat="identity") +
+  guides(fill=F) +
+  coord_flip() +
+  theme_few() +
+  labs(title="Most expensive crafts under Furniture/Utilities/Appliances", 
+       y="Total Cost (in Million)", 
+       x="") +
+  theme(title = element_text(face="bold", size = 10), 
+        axis.title = element_text(face="bold"),
+        panel.border = element_blank(), 
+        axis.line.x = element_line(colour="grey80"), 
+        axis.line.y = element_line(colour="grey80"),
+        axis.ticks  = element_blank()) +
+  scale_y_continuous(labels = dollar)
+
+```
+
+3. Cost per Asset ID
+
+Most assets cost less than $1000.
+
+```{r statuscount}
+cost_asset = newwo %>%
+  filter(!is.na(assetid), assetid > 0) %>%
+  group_by(assetid) %>%
+  summarise(TotalCost = round(sum(actualcosts))) %>%
+  arrange(desc(TotalCost)) 
+
+print(paste("There are", length(unique(cost_asset$assetid)), "unique assets."))
+
+asset_cost_histogram = cost_asset %>% 
+  ggplot(aes(x = TotalCost)) + 
+  geom_histogram() + 
+  theme_few() +
+  labs(title="Asset cost Distribution", 
+       y="Total Cost", 
+       x="Number of Assets")
+
+expensive_asset = cost_asset %>% 
+  filter(TotalCost >= 100000) %>% 
+  ggplot(aes(x = TotalCost)) + 
+  geom_histogram() + 
+  theme_few() +
+  labs(title="Distribution of Most expensive Asset", 
+       y="Total Cost (in Million)", 
+       x="Number of Assets")
+
+normal_asset = cost_asset %>% 
+  filter(TotalCost < 2000) %>% 
+  ggplot(aes(x = TotalCost)) + 
+  geom_histogram() + 
+  theme_few() +
+  labs(title="Distribution of Assets with total cost less than $2000", 
+       y="Total Cost", 
+       x="Number of Assets")
+
+asset_cost_histogram
+expensive_asset
+normal_asset
+```
+
+4. Count Reactive/Preventive Craft Group
+
+#preventive is one of the craft groups which may be confusing
+
+```{r pmcraft}
+pm_craft = newwo %>%
+  group_by(craftgroup) %>%
+  summarise(Count = round(sum(ispreventmaint)/1000, digits = 2)) %>%
+  arrange(desc(Count)) %>% 
+  ggplot(aes(x=reorder(craftgroup, Count), y=Count)) + 
+  geom_bar(stat="identity") +
+  guides(fill=F) +
+  coord_flip() +
+  theme_few() +
+  labs(title="Number of Preventive Maintenance per Craft Group", 
+       y="Total Cost (in Thousand)", 
+       x="") +
+  theme(title = element_text(face="bold", size=10), 
+        axis.title = element_text(face="bold"),
+        panel.border = element_blank(), 
+        axis.line.x = element_line(colour="grey80"), 
+        axis.line.y = element_line(colour="grey80"),
+        axis.ticks  = element_blank()) +
+  scale_y_continuous(labels = dollar)
+pm_craft
+```
+
+5. Count Reactive/Preventive Asset ID
+
+We look at the first 6 assets with the highest number of preventive maintenance work orders, and the first 6 assets with the highest average cost per preventive maintenance work orders, since these are the outliers. We plan to perform time series for these 12.
+
+```{r pmasset}
+pm_asset = newwo %>%
+  filter(!is.na(assetid), assetid > 0, ispreventmaint == 1) %>%
+  group_by(assetid) %>%
+  summarise(Count = sum(ispreventmaint),
+            AverageCost = round(mean(actualcosts), digits = 4)) %>%
+  arrange(assetid)
+
+plot(pm_asset$Count, pm_asset$AverageCost, xlab = "Number of preventive maintenance work orders", ylab = "Average Cost in Dollar")
+
+pm_asset %>% 
+  arrange(desc(Count)) %>%
+  head()
+
+pm_asset %>%
+  arrange(desc(AverageCost)) %>%
+  head()  
+
+```
+
+by priority description, by craft, by efficiency (predict efficiency based on craftgroup, priority, ispreventmaint - regression, tree)
+
+```{r date}
+requested = newwo %>% 
+  mutate(yearrequested = year(daterequested),
+         monthrequested = month(daterequested),
+         dayrequested = day(daterequested)) %>%
+  filter(yearrequested < 2020, yearrequested > 2000) %>%
+  mutate(ymrequested = make_date(yearrequested, monthrequested),
+         ymdrequested = make_date(yearrequested, monthrequested, dayrequested)) %>%
+  mutate(yearcompleted = year(actualcompletiondate),
+         monthcompleted = month(actualcompletiondate),
+         daycompleted = day(actualcompletiondate)) %>%
+  filter(yearcompleted < 2020, yearcompleted > 2000) %>%
+  mutate(ymcompleted = make_date(yearcompleted, monthcompleted),
+         ymdcompleted = make_date(yearcompleted, monthcompleted, daycompleted))
+
+```
+
+```{r priorityts}
+priority = requested %>% select(craftdescription, craftgroup, daterequested, datecreated, actualcompletiondate, laststatuschange, currentstatus, prioritydescription, ispreventmaint, ymrequested, ymcompleted) %>%
+  filter(currentstatus != "Others") %>%
+  filter(!(prioritydescription %in% c("-", "TBD", "Safety", "unknown", "Some Production Loss", "System Available", "Spare Time"))) %>%
+  filter(!is.na(daterequested), !is.na(datecreated), !is.na(laststatuschange)) %>%
+  mutate(createffi = as.numeric(round((datecreated - daterequested)/3600, digits = 2)),
+         totaleffi = as.numeric(round((actualcompletiondate - daterequested)/3600, digits = 2))) %>%
+  filter(totaleffi >= 0, createffi >= 0)
+
+priority
+```
+
+
+
+```{r}
+#my work starts here
+
+#check how many craft groups there are
+#build a model for one craft group, copy & paste for others
+unique(priority$craftgroup)
+
+#average create efficiency
+avg_cr_ef <- mean(priority$createffi)
+
+#create efficiency as a percentage of the avg create efficiency
+priority %>%
+  mutate(cr_ef_percent = (createffi/(avg_cr_ef)))-> priority_1
+
+#building the model to be applied to all other craft groups
+priority_1 %>%
+  filter(craftgroup == "PLUMBING/RESTROOM") -> plumbing_rest_prio
+```
+
+```{r}
+#necessary libraries loaded
+library(workflows)
+library(parsnip)
+library(recipes)
+library(yardstick)
+library(glmnet)
+library(tidyverse)
+library(tidyquant)
+library(timetk)
+
+plum_rest <- plumbing_rest_prio %>%
+    select(datecreated, cr_ef_percent) %>%
+    rename(date  = datecreated,
+           value = cr_ef_percent)
+
+plum_rest %>%
+    ggplot(aes(x = date, y = value)) +
+    geom_rect(xmin = ymd("2016-01-01"),
+              xmax = ymd("2019-12-31"),
+              ymin = 0, ymax = max(plum_rest$value),
+              fill = palette_light()[[4]], alpha = 0.01) +
+    geom_point(alpha = 0.5, color = palette_light()[[1]]) +
+    labs(title = "create efficiency %", x = "") +
+    theme_tq()
+```
+
+```{r}
+#split into train and test sets
+plum_rest %>% 
+  filter(date < ymd("2016-01-01")) -> train_tbl
+
+plum_rest %>% 
+  filter(date >= ymd("2016-01-01")) -> test_tbl
+
+#adding time series signature
+recipe(value ~ ., data = train_tbl) %>%
+    step_timeseries_signature(date) -> recipe_spec_timeseries
+
+bake(prep(recipe_spec_timeseries), new_data = train_tbl)
+
+recipe_spec_timeseries %>%
+    step_rm(date) %>%
+    step_rm(contains("iso"), contains("minute"), contains("hour"),
+            contains("am.pm"), contains("xts")) %>%
+    step_normalize(contains("index.num"), date_year) %>%
+    step_dummy(contains("lbl"), one_hot = TRUE) %>%
+    step_ns(date_index.num, deg_free = 3) -> recipe_spec_final
+
+bake(prep(recipe_spec_final), new_data = train_tbl)
+
+linear_reg(mode = "regression", penalty = 0.001, mixture = 0.5) %>%
+    set_engine("glmnet") -> model_spec_glmnet
+
+workflow() %>%
+    add_recipe(recipe_spec_final) %>%
+    add_model(model_spec_glmnet) -> workflow_glmnet
+
+workflow_glmnet %>% 
+  fit(data = train_tbl) -> workflow_trained
+
+workflow_trained %>% 
+    predict(test_tbl) %>%
+    bind_cols(test_tbl) -> prediction_tbl
+
+
+#new plot with prediction v actual side by side for 2016 onwards
+#to see how good the model we built was against actual data
+plum_rest %>%
+    ggplot(aes(x = date, y = value)) +
+  #can we somehow modify this so the test region is shaded
+  #and train region is not
+  #same problem happens in original scatterplot
+    #geom_rect(xmin = ymd("2016-01-01"),
+              #xmax = ymd("2019-12-31"),
+              #ymin = 0, ymax = max(plum_rest$value),
+              #fill = palette_light()[[4]], alpha = 0.01) +
+    geom_point(alpha = 0.5, color = palette_light()[[1]]) +
+    labs(title = "create efficiency %", x = "") +
+    geom_point(aes(x = date, y = .pred), data = prediction_tbl, 
+               alpha = 0.5, color = palette_light()[[2]]) +
+    theme_tq()
+
+
+
+
+
+```
+
+```{r}
+#forecasting future data
+# Extract create efficiency index
+plum_rest %>% 
+  tk_index() -> idx
+idx %>%
+  # Get time series summary from index
+  tk_get_timeseries_summary()-> bikes_summary
+
+
+idx %>% 
+  tk_make_future_timeseries(n_future = 18000) -> idx_future
+
+tibble(date = idx_future)  -> future_tbl
+
+workflow_glmnet %>% 
+    fit(data = plum_rest) %>%
+    predict(future_tbl) %>%
+    bind_cols(future_tbl) -> future_predictions_tbl 
+
+#forecasting for next 6 months scatterplot
+plum_rest %>%
+    ggplot(aes(x = date, y = value)) +
+  #can we somehow modify this so the test region is shaded
+  #and train region is not
+  #same problem happens in original scatterplot
+    #geom_rect(xmin = ymd("2016-01-01"),
+              #xmax = ymd("2019-12-31"),
+              #ymin = 0, ymax = max(plum_rest$value),
+              #fill = palette_light()[[4]], alpha = 0.01) +
+    geom_point(alpha = 0.5, color = palette_light()[[1]]) +
+    labs(title = "create efficiency %", x = "") +
+     geom_point(aes(x = date, y = .pred), data = future_predictions_tbl,
+               alpha = 0.5, color = palette_light()[[2]]) +
+    geom_smooth(aes(x = date, y = .pred), data = future_predictions_tbl,
+                method = 'loess') + 
+    theme_tq()
+
+```

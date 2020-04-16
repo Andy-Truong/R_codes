@@ -382,3 +382,129 @@ plum_rest %>%
     theme_tq()
 
 ```
+
+```{r}
+#this is the function that generates the future create and predict efficiency  using glm loess
+
+avg_cr_ef <- mean(priority$createffi)
+avg_tot_ef <- mean(priority$totaleffi)
+
+#create efficiency as a percentage of the avg create efficiency
+priority %>%
+  mutate(cr_ef_percent = (createffi/(avg_cr_ef)))-> priority_2
+
+priority_2 %>%
+  mutate(tot_ef_percent = (totaleffi/(avg_tot_ef)))-> priority_3
+
+predict_cr_effi <- function(df)
+{
+library(workflows)
+library(parsnip)
+library(recipes)
+library(yardstick)
+library(glmnet)
+library(tidyverse)
+library(tidyquant)
+library(timetk)
+
+df_1 <- df %>%
+    select(datecreated, cr_ef_percent) %>%
+    rename(date  = datecreated,
+           value = cr_ef_percent)
+
+df_1 %>% 
+  tk_index() -> idx
+idx %>%
+  # Get time series summary from index
+  tk_get_timeseries_summary()-> bikes_summary
+
+
+idx %>% 
+  tk_make_future_timeseries(n_future = 18000) -> idx_future
+
+tibble(date = idx_future)  -> future_tbl
+
+workflow_glmnet %>% 
+    fit(data = df_1) %>%
+    predict(future_tbl) %>%
+    bind_cols(future_tbl) -> future_predictions_tbl 
+
+#forecasting for next 6 months scatterplot
+df_1 %>%
+    ggplot(aes(x = date, y = value)) +
+  #can we somehow modify this so the test region is shaded
+  #and train region is not
+  #same problem happens in original scatterplot
+    #geom_rect(xmin = ymd("2016-01-01"),
+              #xmax = ymd("2019-12-31"),
+              #ymin = 0, ymax = max(plum_rest$value),
+              #fill = palette_light()[[4]], alpha = 0.01) +
+    geom_point(alpha = 0.5, color = palette_light()[[1]]) +
+    labs(title = "create efficiency %", x = "") +
+     geom_point(aes(x = date, y = .pred), data = future_predictions_tbl,
+               alpha = 0.5, color = palette_light()[[2]]) +
+    geom_smooth(aes(x = date, y = .pred), data = future_predictions_tbl,
+                method = 'loess') + 
+    theme_tq()
+
+}
+
+predict_tot_effi <- function(fd)
+{
+library(workflows)
+library(parsnip)
+library(recipes)
+library(yardstick)
+library(glmnet)
+library(tidyverse)
+library(tidyquant)
+library(timetk)
+
+ fd %>%
+    select(datecreated, tot_ef_percent) %>%
+    rename(date  = datecreated,
+           value = tot_ef_percent)-> fd_1
+
+fd_1 %>% 
+  tk_index() -> idx
+idx %>%
+  # Get time series summary from index
+  tk_get_timeseries_summary()-> bikes_summary
+
+
+idx %>% 
+  tk_make_future_timeseries(n_future = 18000) -> idx_future
+
+tibble(date = idx_future)  -> future_tbl
+
+workflow_glmnet %>% 
+    fit(data = fd_1) %>%
+    predict(future_tbl) %>%
+    bind_cols(future_tbl) -> future_predictions_tbl 
+
+#forecasting for next 6 months scatterplot
+fd_1 %>%
+    ggplot(aes(x = date, y = value)) +
+  #can we somehow modify this so the test region is shaded
+  #and train region is not
+  #same problem happens in original scatterplot
+    #geom_rect(xmin = ymd("2016-01-01"),
+              #xmax = ymd("2019-12-31"),
+              #ymin = 0, ymax = max(plum_rest$value),
+              #fill = palette_light()[[4]], alpha = 0.01) +
+    geom_point(alpha = 0.5, color = palette_light()[[1]]) +
+    labs(title = "create efficiency %", x = "") +
+     geom_point(aes(x = date, y = .pred), data = future_predictions_tbl,
+               alpha = 0.5, color = palette_light()[[2]]) +
+    geom_smooth(aes(x = date, y = .pred), data = future_predictions_tbl,
+                method = 'loess') + 
+    theme_tq()
+
+}
+
+predict_cr_effi()
+predict_tot_effi()
+priority_3 %>%
+  filter(craftgroup == "PLUMBING/RESTROOM") -> plumbing_rest_prio
+```
+

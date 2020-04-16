@@ -309,18 +309,14 @@ COUNT_TS_MSE = function(craftgroup) {
   
   ts.training <- ts(tsdata$count[1:train.periods], start = c(2001,1), end = c(2019,6), frequency = 12)
   
-  ts.training.SESmodel <- HoltWinters(ts.training, beta=FALSE, gamma=FALSE)
-  ts.training.DESmodel <- HoltWinters(ts.training, gamma=FALSE)
+  ts.training.SESmodel <- HoltWinters(ts.training, beta=FALSE)
   ts.training.HWmodel <- HoltWinters(ts.training)
   
   ts.SESmodel <- HoltWinters(ts,
                                        alpha=ts.training.SESmodel$alpha, 
                                        beta=FALSE, 
-                                       gamma=FALSE)
-  ts.DESmodel <- HoltWinters(ts, 
-                                       alpha=ts.training.DESmodel$alpha, 
-                                       beta=ts.training.DESmodel$beta, 
-                                       gamma=FALSE)
+                                       gamma=ts.training.SESmodel$gamma)
+
   ts.HWmodel <- HoltWinters(ts, 
                                       alpha=ts.training.HWmodel$alpha, 
                                       beta=ts.training.HWmodel$beta, 
@@ -333,11 +329,6 @@ COUNT_TS_MSE = function(craftgroup) {
   fit.end <- train.periods + test.periods - 1
   
   SES.MSE <- sum((ts.SESmodel$fitted[fit.start:fit.end] - ts[data.start:data.end])^2)/(test.periods)
-  
-  fit.start <- train.periods - 1 
-  fit.end <- train.periods + test.periods - 2
-  
-  DES.MSE <- sum((ts.DESmodel$fitted[fit.start:fit.end] - ts[data.start:data.end])^2)/(test.periods)
   
   fit.start <- train.periods - cycle + 1 
   fit.end <- train.periods + test.periods - cycle
@@ -377,18 +368,13 @@ COST_TS_MSE = function(craftgroup) {
   
   ts.training <- ts(tsdata$totalcost[1:train.periods], start = c(2001,1), end = c(2019,6), frequency = 12)
   
-  ts.training.SESmodel <- HoltWinters(ts.training, beta=FALSE, gamma=FALSE)
-  ts.training.DESmodel <- HoltWinters(ts.training, gamma=FALSE)
+  ts.training.SESmodel <- HoltWinters(ts.training, beta=FALSE)
   ts.training.HWmodel <- HoltWinters(ts.training)
   
   ts.SESmodel <- HoltWinters(ts,
                              alpha=ts.training.SESmodel$alpha, 
                              beta=FALSE, 
-                             gamma=FALSE)
-  ts.DESmodel <- HoltWinters(ts, 
-                             alpha=ts.training.DESmodel$alpha, 
-                             beta=ts.training.DESmodel$beta, 
-                             gamma=FALSE)
+                             gamma=ts.training.SESmodel$gamma)
   ts.HWmodel <- HoltWinters(ts, 
                             alpha=ts.training.HWmodel$alpha, 
                             beta=ts.training.HWmodel$beta, 
@@ -402,11 +388,6 @@ COST_TS_MSE = function(craftgroup) {
   
   SES.MSE <- sum((ts.SESmodel$fitted[fit.start:fit.end] - ts[data.start:data.end])^2)/(test.periods)
   
-  fit.start <- train.periods - 1 
-  fit.end <- train.periods + test.periods - 2
-  
-  DES.MSE <- sum((ts.DESmodel$fitted[fit.start:fit.end] - ts[data.start:data.end])^2)/(test.periods)
-  
   fit.start <- train.periods - cycle + 1 
   fit.end <- train.periods + test.periods - cycle
   
@@ -419,7 +400,21 @@ COST_TS_MSE = function(craftgroup) {
               names(MSE)[which.min(MSE)],
               "=",
               round(MSE[which.min(MSE)]))) 
-  
+              
+AVG_TS = function(craftgroup) {
+  tsdata = normalcost %>% filter(craftgroup == !!craftgroup) %>% 
+    group_by(ymrequested) %>% 
+    summarize(averagecost = mean(actualcosts))%>%
+    full_join(wocount, by = "ymrequested") %>%
+    na_replace(fill = 0) %>%
+    select(-wocount) %>%
+    arrange(ymrequested)
+
+  ts = ts(tsdata$averagecost, 
+          start = c(2001,1), 
+          end = c(2019,6), 
+          frequency = 12)
+  plot(ts, ylab = "Average Cost", main = paste("AVERAGE COST OF", craftgroup))
 }
 ```
 
@@ -445,55 +440,18 @@ SES.prediction = function(craftgroup) {
   
   ts.training <- ts(tsdata$count[1:train.periods], start = c(2001,1), end = c(2019,6), frequency = 12)
   
-  ts.training.SESmodel <- HoltWinters(ts.training, beta=FALSE, gamma=FALSE)
+  ts.training.SESmodel <- HoltWinters(ts.training, beta=FALSE)
   
   ts.SESmodel <- HoltWinters(ts,
                              alpha=ts.training.SESmodel$alpha, 
                              beta=FALSE, 
-                             gamma=FALSE)
+                             gamma=ts.training.SESmodel$gamma)
   
   forec = forecast(ts.SESmodel, 18)
   SES.plot = plot(ts.SESmodel)
   forecast.plot = plot(forec, main = "Single Exponential Smoothing Forecast for 2019-2020")
   forecast.plot
-  
-}
-```
 
-```{r predDES}
-DES.prediction = function(craftgroup) {
-  tsdata = nonzerocost %>% filter(craftgroup == !!craftgroup) %>% 
-    group_by(ymrequested) %>% 
-    summarize(count = n()) %>%
-    full_join(wocount, by = "ymrequested") %>%
-    na_replace(fill = 0) %>%
-    select(-wocount) %>%
-    arrange(ymrequested)
-  
-  ts = ts(tsdata$count, 
-          start = c(2001,1), 
-          end = c(2019,6), 
-          frequency = 12)
-  
-  
-  train.periods = 155
-  test.periods = 67
-  cycle=12
-  
-  ts.training <- ts(tsdata$count[1:train.periods], start = c(2001,1), end = c(2019,6), frequency = 12)
-  
-  ts.training.DESmodel <- HoltWinters(ts.training, gamma=FALSE)
-  
-  ts.DESmodel <- HoltWinters(ts,
-                             alpha=ts.training.DESmodel$alpha, 
-                             beta=ts.training.DESmodel$beta, 
-                             gamma=FALSE)
-  
-  forec = forecast(ts.DESmodel, 18)
-  DES.plot = plot(ts.DESmodel)
-  forecast.plot = plot(forec, main = "Double Exponential Smoothing Forecast for 2019-2020")
-  forecast.plot
-  
 }
 ```
 
@@ -554,18 +512,13 @@ cycle <- 12
 
 wocountts.training <- ts(wocount$wocount[1:train.periods], start = c(2001,1), end = c(2019,8), frequency = 12)
 
-wocountts.training.SESmodel <- HoltWinters(wocountts.training, beta=FALSE, gamma=FALSE)
-wocountts.training.DESmodel <- HoltWinters(wocountts.training, gamma=FALSE)
+wocountts.training.SESmodel <- HoltWinters(wocountts.training, beta=FALSE)
 wocountts.training.HWmodel <- HoltWinters(wocountts.training)
 
 wocountts.SESmodel <- HoltWinters(wocountts,
                           alpha=wocountts.training.SESmodel$alpha, 
                           beta=FALSE, 
-                          gamma=FALSE)
-wocountts.DESmodel <- HoltWinters(wocountts, 
-                          alpha=wocountts.training.DESmodel$alpha, 
-                          beta=wocountts.training.DESmodel$beta, 
-                          gamma=FALSE)
+                          gamma=wocountts.training.SESmodel$gamma)
 wocountts.HWmodel <- HoltWinters(wocountts, 
                          alpha=wocountts.training.HWmodel$alpha, 
                          beta=wocountts.training.HWmodel$beta, 
@@ -578,11 +531,6 @@ fit.start <- train.periods
 fit.end <- train.periods + test.periods - 1
 
 SES.MSE <- sum((wocountts.SESmodel$fitted[fit.start:fit.end] - wocountts[data.start:data.end])^2)/(test.periods)
-
-fit.start <- train.periods - 1 
-fit.end <- train.periods + test.periods - 2
-
-DES.MSE <- sum((wocountts.DESmodel$fitted[fit.start:fit.end] - wocountts[data.start:data.end])^2)/(test.periods)
 
 fit.start <- train.periods - cycle + 1 
 fit.end <- train.periods + test.periods - cycle
@@ -598,12 +546,30 @@ wocount_2020_HW = forecast(wocountts.HWmodel, 15)
 plot(wocount_2020_HW, main = "Holtwinters Forecast for 2019-2020")
 ```
 
+```{r avgcost_allcraft}
+allavgcost = normalcost %>%  
+    group_by(ymrequested) %>% 
+    summarize(averagecost = mean(actualcosts))%>%
+    full_join(wocount, by = "ymrequested") %>%
+    na_replace(fill = 0) %>%
+    select(-wocount) %>%
+    arrange(ymrequested)
+
+  ts = ts(allavgcost$averagecost, 
+          start = c(2001,1), 
+          end = c(2019,6), 
+          frequency = 12)
+  plot(ts, ylab = "Average Cost", main = "Average Cost of All Crafts")
+ ```
+
 **3.1.2 Plumbing** 
 
 ```{r wocountts_predict_plumb}
 COUNT_COUNT_TS_MSE("PLUMBING/RESTROOM")
 
 HW.prediction("PLUMBING/RESTROOM")
+
+AVG_TS("PLUMBING/RESTROOM")
 ```
 
 **3.1.3 Furniture** 
@@ -612,8 +578,9 @@ HW.prediction("PLUMBING/RESTROOM")
 COUNT_TS_MSE("FURNITURES/UTILITIES/APPLIANCES")
 
 HW.prediction("FURNITURES/UTILITIES/APPLIANCES")
-```
 
+AVG_TS("FURNITURES/UTILITIES/APPLIANCES")
+```
 
 **3.1.3 Security**
 
@@ -621,6 +588,8 @@ HW.prediction("FURNITURES/UTILITIES/APPLIANCES")
 COUNT_TS_MSE("HEALTH/SAFETY/SECURITY")
 
 HW.prediction("HEALTH/SAFETY/SECURITY")
+
+AVG_TS("HEALTH/SAFETY/SECURITY")
 ```
 
 **3.1.4 Electricity/Energy**
@@ -629,6 +598,8 @@ HW.prediction("HEALTH/SAFETY/SECURITY")
 COUNT_TS_MSE("ELECTRICITY/ENERGY")
 
 HW.prediction("ELECTRICITY/ENERGY")
+
+AVG_TS("ELECTRICITY/ENERGY")
 ```
 
 **3.1.5 Outdoors**
@@ -637,6 +608,8 @@ HW.prediction("ELECTRICITY/ENERGY")
 COUNT_TS_MSE("OUTDOORS")
 
 HW.prediction("OUTDOORS")
+
+AVG_TS("OUTDOORS")
 ```
 
 **3.1.6 Vehicle/Transportation/Delivery** 
@@ -644,7 +617,9 @@ HW.prediction("OUTDOORS")
 ```{r wocountts_predict_transport}
 COUNT_TS_MSE("VEHICLE/TRANSPORTATION/DELIVERY")
 
-DES.prediction("VEHICLE/TRANSPORTATION/DELIVERY")
+HW.prediction("VEHICLE/TRANSPORTATION/DELIVERY")
+
+AVG_TS("VEHICLE/TRANSPORTATION/DELIVERY")
 ```
 
 **3.1.7 Cleaning/Sanitization** 
@@ -652,7 +627,9 @@ DES.prediction("VEHICLE/TRANSPORTATION/DELIVERY")
 ```{r wocountts_predict_clean}
 COUNT_TS_MSE("CLEANING/SANITIZATION")
 
-DES.prediction("CLEANING/SANITIZATION")
+HW.prediction("CLEANING/SANITIZATION")
+
+AVG_TS("CLEANING/SANITIZATION")
 ```
 
 **3.1.8 Construction/Building** 
@@ -660,7 +637,9 @@ DES.prediction("CLEANING/SANITIZATION")
 ```{r wocountts_predict_construct}
 COUNT_TS_MSE("CONSTRUCTION/BUILDING")
 
-DES.prediction("CONSTRUCTION/BUILDING")
+HW.prediction("CONSTRUCTION/BUILDING")
+
+AVG_TS("CONSTRUCTION/BUILDING")
 ```
 
 
@@ -670,6 +649,8 @@ DES.prediction("CONSTRUCTION/BUILDING")
 COUNT_TS_MSE("EVENT/RECREATION/F&B")
 
 HW.prediction("EVENT/RECREATION/F&B")
+
+AVG_TS("EVENT/RECREATION/F&B")
 ```
 
 
@@ -679,6 +660,8 @@ HW.prediction("EVENT/RECREATION/F&B")
 COUNT_TS_MSE("PLANT/MATERIALS")
 
 HW.prediction("PLANT/MATERIALS")
+
+AVG_TS("PLANT/MATERIALS")
 ```
 
 **3.1.11 Personnel and Training**
@@ -686,7 +669,9 @@ HW.prediction("PLANT/MATERIALS")
 ```{r wocountts_predict_personnel}
 COUNT_TS_MSE("ADMIN/PERSONNEL/TRAINING")
 
-DES.prediction("ADMIN/PERSONNEL/TRAINING")
+HW.prediction("ADMIN/PERSONNEL/TRAINING")
+
+AVG_TS("ADMIN/PERSONNEL/TRAINING")
 ```
 
 **3.1.12 Preventive/Scheduled** 
@@ -694,7 +679,9 @@ DES.prediction("ADMIN/PERSONNEL/TRAINING")
 ```{r wocountts_predict_PM}
 COUNT_TS_MSE("PREVENTIVE/SCHEDULED")
 
-SES.prediction("PREVENTIVE/SCHEDULED")
+HW.prediction("PREVENTIVE/SCHEDULED")
+
+AVG_TS("PREVENTIVE/SCHEDULED")
 ```
 
 **3.1.13 Inspection** 
@@ -702,7 +689,9 @@ SES.prediction("PREVENTIVE/SCHEDULED")
 ```{r wocountts_predict_inspect}
 COUNT_TS_MSE("INSPECTION")
 
-DES.prediction("INSPECTION")
+HW.prediction("INSPECTION")
+
+AVG_TS("INSPECTION")
 ```
 
 **3.1.14 IT/Network** 
@@ -711,6 +700,8 @@ DES.prediction("INSPECTION")
 COUNT_TS_MSE("IT/NETWORK")
 
 HW.prediction("IT/NETWORK")
+
+AVG_TS("IT/NETWORK")
 ```
 
 
@@ -719,7 +710,9 @@ HW.prediction("IT/NETWORK")
 ```{r wocountts_predict_contract}
 COUNT_TS_MSE("CONTRACT")
 
-SES.prediction("CONTRACT")
+HW.prediction("CONTRACT")
+
+AVG_TS("CONTRACT")
 ```
 
 **3.1.16 SOS**
@@ -727,7 +720,9 @@ SES.prediction("CONTRACT")
 ```{r wocountts_predict_SOS}
 COUNT_TS_MSE("SOS")
 
-SES.prediction("SOS")
+HW.prediction("SOS")
+
+AVG_TS("SOS")
 ```
 
 
@@ -746,7 +741,7 @@ test.periods <- length(othercountts) - train.periods
 
 othercountts.training <- ts(othercount$wocount[1:train.periods], start = c(2001,1), end = c(2019,6), frequency = 12)
 
-othercountts.training.SESmodel <- HoltWinters(othercountts.training, beta=FALSE, gamma=FALSE)
+othercountts.training.SESmodel <- HoltWinters(othercountts.training, beta=FALSE0, gamma=FALSE)
 othercountts.training.DESmodel <- HoltWinters(othercountts.training, gamma=FALSE)
 othercountts.training.HWmodel <- HoltWinters(othercountts.training)
 
@@ -829,18 +824,13 @@ COST_TS_MSE = function(craftgroup) {
   
   ts.training <- ts(tsdata$totalcost[1:train.periods], start = c(2001,1), end = c(2019,6), frequency = 12)
   
-  ts.training.SESmodel <- HoltWinters(ts.training, beta=FALSE, gamma=FALSE)
-  ts.training.DESmodel <- HoltWinters(ts.training, gamma=FALSE)
+  ts.training.SESmodel <- HoltWinters(ts.training, beta=FALSE)
   ts.training.HWmodel <- HoltWinters(ts.training)
   
   ts.SESmodel <- HoltWinters(ts,
                              alpha=ts.training.SESmodel$alpha, 
                              beta=FALSE, 
-                             gamma=FALSE)
-  ts.DESmodel <- HoltWinters(ts, 
-                             alpha=ts.training.DESmodel$alpha, 
-                             beta=ts.training.DESmodel$beta, 
-                             gamma=FALSE)
+                             gamma=ts.training.SESmodel$gamma)
   ts.HWmodel <- HoltWinters(ts, 
                             alpha=ts.training.HWmodel$alpha, 
                             beta=ts.training.HWmodel$beta, 
@@ -853,11 +843,6 @@ COST_TS_MSE = function(craftgroup) {
   fit.end <- train.periods + test.periods - 1
   
   SES.MSE <- sum((ts.SESmodel$fitted[fit.start:fit.end] - ts[data.start:data.end])^2)/(test.periods)
-  
-  fit.start <- train.periods - 1 
-  fit.end <- train.periods + test.periods - 2
-  
-  DES.MSE <- sum((ts.DESmodel$fitted[fit.start:fit.end] - ts[data.start:data.end])^2)/(test.periods)
   
   fit.start <- train.periods - cycle + 1 
   fit.end <- train.periods + test.periods - cycle
@@ -897,12 +882,12 @@ SES.prediction.cost = function(craftgroup) {
   
   ts.training <- ts(tsdata$totalcost[1:train.periods], start = c(2001,1), end = c(2019,6), frequency = 12)
   
-  ts.training.SESmodel <- HoltWinters(ts.training, beta=FALSE, gamma=FALSE)
+  ts.training.SESmodel <- HoltWinters(ts.training, beta=FALSE, gamma=TRUE)
   
   ts.SESmodel <- HoltWinters(ts,
                              alpha=ts.training.SESmodel$alpha, 
                              beta=FALSE, 
-                             gamma=FALSE)
+                             gamma=ts.training.SESmodel$gamma)
   
   forec = forecast(ts.SESmodel, 18)
   SES.plot = plot(ts.SESmodel)
@@ -911,42 +896,6 @@ SES.prediction.cost = function(craftgroup) {
   
 }
 
-###DES function for cost
-
-DES.prediction.cost = function(craftgroup) {
-  tsdata = nonzerocost %>% filter(craftgroup == !!craftgroup) %>% 
-    group_by(ymrequested) %>% 
-    summarize(totalcost = sum(actualcosts)) %>%
-    full_join(wocount, by = "ymrequested") %>%
-    na_replace(fill = 0) %>%
-    select(-wocount) %>%
-    arrange(ymrequested)
-  
-  ts = ts(tsdata$totalcost, 
-          start = c(2001,1), 
-          end = c(2019,6), 
-          frequency = 12)
-  
-  
-  train.periods = 155
-  test.periods = 67
-  cycle = 12
-  
-  ts.training <- ts(tsdata$totalcost[1:train.periods], start = c(2001,1), end = c(2019,6), frequency = 12)
-  
-  ts.training.DESmodel <- HoltWinters(ts.training, gamma=FALSE)
-  
-  ts.DESmodel <- HoltWinters(ts,
-                             alpha=ts.training.DESmodel$alpha, 
-                             beta=ts.training.DESmodel$beta, 
-                             gamma=FALSE)
-  
-  forec = forecast(ts.DESmodel, 18)
-  DES.plot = plot(ts.DESmodel)
-  forecast.plot = plot(forec, main = "Double Exponential Smoothing Cost Forecast for 2019-2020")
-  forecast.plot
-  
-}
 
 ### HW function for cost
 

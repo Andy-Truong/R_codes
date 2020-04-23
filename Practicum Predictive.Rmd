@@ -52,187 +52,6 @@ priority = requested %>% select(craftdescription, craftgroup, daterequested, dat
 
 priority
 ```
-
-```{r emergencypriority ts}
-emergencypriority = priority %>% filter(prioritydescription=="EMERGENCY") %>% 
-                            select(prioritydescription, totaleffi, actualcompletiondate) %>% 
-                            arrange(actualcompletiondate)
-#view(emergencypriority)
-e = ts(emergencypriority$totaleffi, start = c(2001,1), end = c(2019,12), frequency = 12)
-plot(e)
-
-train.emergency = 180
-test.emergency = 48
-e.cycle = 12
-
-e.training = ts(emergencypriority$totaleffi[1:train.emergency], freq=e.cycle) 
-e.training.SESmodel = HoltWinters(e.training, beta=FALSE, gamma=TRUE)
-e.training.DESmodel = HoltWinters(e.training, gamma=TRUE)
-e.training.HWmodel = HoltWinters(e.training)
-
-e.SESmodel = HoltWinters(e, alpha=e.training.SESmodel$alpha, beta=FALSE, gamma=TRUE)
-e.DESmodel = HoltWinters(e, alpha=e.training.DESmodel$alpha, beta=e.training.DESmodel$beta, gamma=TRUE)
-e.HWmodel = HoltWinters(e, alpha=e.training.HWmodel$alpha, beta=e.training.HWmodel$beta, gamma=e.training.HWmodel$gamma)
-
-e.data.start = train.emergency + 1
-e.data.end = train.emergency + test.emergency
-
-e.fit.start = train.emergency
-e.fit.end = train.emergency + test.emergency - 1
-e.SES.MSE = sum((e.SESmodel$fitted[e.fit.start:e.fit.end] - e[e.data.start:e.data.end])^2) / (test.emergency)
-prediction.e.SES = predict(e.SESmodel, 60, prediction.interval = TRUE)
-plot(e.SESmodel, prediction.e.SES, main = "Emergeny SES Model")
-
-e.fit.start = train.emergency - 1
-e.fit.end = train.emergency + test.emergency - 2
-e.DES.MSE = sum((e.DESmodel$fitted[e.fit.start:e.fit.end] - e[e.data.start:e.data.end])^2) / (test.emergency)
-prediction.e.DES = predict(e.DESmodel, 60, prediction.interval = TRUE)
-plot(e.DESmodel, prediction.e.DES, main = "Emergency DES Model")
-
-e.fit.start = train.emergency - e.cycle + 1
-e.fit.end = train.emergency + test.emergency - e.cycle
-e.HW.MSE = sum((e.HWmodel$fitted[e.fit.start:e.fit.end] - e[e.data.start:e.data.end])^2) / (test.emergency)
-prediction.e.HW = predict(e.HWmodel, 60, prediction.interval = TRUE)
-plot(e.HWmodel, prediction.e.HW, main = "Emergency HW Model")
-
-cat(paste("SES MSE =",e.SES.MSE,"\nDES MSE =",e.DES.MSE,"\nHW MSE =",e.HW.MSE))
-```
-
-```{r highpriority ts}
-highpriority = priority %>% filter(prioritydescription=="HIGH") %>% 
-                            select(prioritydescription, totaleffi, actualcompletiondate) %>% 
-                            arrange(actualcompletiondate)
-#view(highpriority)
-h = ts(highpriority$totaleffi, start = c(2001,1), end = c(2019,12), frequency = 12)
-plot(h)
-
-train.high = 180
-test.high = 48
-h.cycle = 12
-
-h.training = ts(highpriority$totaleffi[1:train.high], start = c(2001,1), end = c(2019,12), freq=h.cycle) 
-h.training.SESmodel = HoltWinters(h.training, beta=FALSE, gamma=TRUE)
-h.training.DESmodel = HoltWinters(h.training, gamma=TRUE)
-h.training.HWmodel = HoltWinters(h.training)
-
-h.SESmodel = HoltWinters(h, alpha=h.training.SESmodel$alpha, beta=FALSE, gamma=TRUE)
-h.DESmodel = HoltWinters(h, alpha=h.training.DESmodel$alpha, beta=h.training.DESmodel$beta, gamma=TRUE)
-h.HWmodel = HoltWinters(h, alpha=h.training.HWmodel$alpha, beta=h.training.HWmodel$beta, gamma=h.training.HWmodel$gamma)
-
-h.data.start = train.high + 1
-h.data.end = train.high + test.high
-
-h.fit.start = train.high
-h.fit.end = train.high + test.high - 1
-h.SES.MSE = sum((h.SESmodel$fitted[h.fit.start:h.fit.end] - h[h.data.start:h.data.end])^2) / (test.high)
-prediction.h.SES = predict(h.SESmodel, 60, prediction.interval = TRUE)
-plot(h.SESmodel, prediction.h.SES, main = "High SES Model")
-
-h.fit.start = train.high - 1
-h.fit.end = train.high + test.high - 2
-h.DES.MSE = sum((h.DESmodel$fitted[h.fit.start:h.fit.end] - h[h.data.start:h.data.end])^2) / (test.high)
-prediction.h.DES = predict(h.DESmodel, 60, prediction.interval = TRUE)
-plot(h.DESmodel, prediction.h.DES, main = "High DES Model")
-
-h.fit.start = train.high - h.cycle + 1
-h.fit.end = train.high + test.high - h.cycle
-h.HW.MSE = sum((h.HWmodel$fitted[h.fit.start:h.fit.end] - h[h.data.start:h.data.end])^2) / (test.high)
-prediction.h.HW = predict(h.HWmodel, 60, prediction.interval = TRUE)
-plot(h.HWmodel, prediction.h.HW, main = "High HW Model")
-
-cat(paste("SES MSE =",h.SES.MSE,"\nDES MSE =",h.DES.MSE,"\nHW MSE =",h.HW.MSE))
-```
-
-```{r mediumpriority ts}
-mediumpriority = priority %>% filter(prioritydescription=="MEDIUM") %>% 
-                              select(prioritydescription, totaleffi, actualcompletiondate) %>% 
-                              arrange(actualcompletiondate)
-#view(mediumpriority)
-m = ts(mediumpriority$totaleffi, start = c(2001,1), end = c(2019,12), frequency = 12)
-plot(m)
-
-train.medium = 180
-test.medium = 48
-m.cycle = 12
-
-m.training = ts(mediumpriority$totaleffi[1:train.medium], start = c(2001,1), end = c(2019,12), freq=m.cycle) 
-m.training.SESmodel = HoltWinters(m.training, beta=FALSE, gamma=TRUE)
-m.training.DESmodel = HoltWinters(m.training, gamma=TRUE)
-m.training.HWmodel = HoltWinters(m.training)
-
-m.SESmodel = HoltWinters(m, alpha=m.training.SESmodel$alpha, beta=FALSE, gamma=TRUE)
-m.DESmodel = HoltWinters(m, alpha=m.training.DESmodel$alpha, beta=m.training.DESmodel$beta, gamma=TRUE)
-m.HWmodel = HoltWinters(m, alpha=m.training.HWmodel$alpha, beta=m.training.HWmodel$beta, gamma=m.training.HWmodel$gamma)
-
-m.data.start = train.medium + 1
-m.data.end = train.medium + test.medium
-
-m.fit.start = train.medium
-m.fit.end = train.medium + test.medium - 1
-m.SES.MSE = sum((m.SESmodel$fitted[m.fit.start:m.fit.end] - m[m.data.start:m.data.end])^2) / (test.medium)
-prediction.m.SES = predict(m.SESmodel, 60, prediction.interval = TRUE)
-plot(m.SESmodel, prediction.m.SES, main = "Medium SES Model")
-
-m.fit.start = train.medium - 1
-m.fit.end = train.medium + test.medium - 2
-m.DES.MSE = sum((m.DESmodel$fitted[m.fit.start:m.fit.end] - m[m.data.start:m.data.end])^2) / (test.medium)
-prediction.m.DES = predict(m.DESmodel, 60, prediction.interval = TRUE)
-plot(m.DESmodel, prediction.m.DES, main = "Medium Priority DES Model")
-
-m.fit.start = train.medium - m.cycle + 1
-m.fit.end = train.medium + test.medium - m.cycle
-m.HW.MSE = sum((m.HWmodel$fitted[m.fit.start:m.fit.end] - m[m.data.start:m.data.end])^2) / (test.medium)
-prediction.m.HW = predict(m.HWmodel, 60, prediction.interval = TRUE)
-plot(m.HWmodel, prediction.m.HW, main = "Medium Priority HW Model")
-
-cat(paste("SES MSE =",m.SES.MSE,"\nDES MSE =",m.DES.MSE,"\nHW MSE =",m.HW.MSE))
-```
-
-```{r lowpriority ts}
-lowpriority = priority %>% filter(prioritydescription=="LOW") %>% 
-                           select(prioritydescription, totaleffi, actualcompletiondate) %>% 
-                           arrange(actualcompletiondate)
-#view(lowpriority)
-l = ts(lowpriority$totaleffi, start = c(2001,1), end = c(2019,12), frequency = 12)
-plot(l)
-
-train.low = 180
-test.low = 48
-l.cycle = 12
-
-l.training = ts(lowpriority$totaleffi[1:train.low], start = c(2001,1), end = c(2019,12), freq=l.cycle) 
-l.training.SESmodel = HoltWinters(l.training, beta=FALSE, gamma=TRUE)
-l.training.DESmodel = HoltWinters(l.training, gamma=TRUE)
-l.training.HWmodel = HoltWinters(l.training)
-
-l.SESmodel = HoltWinters(l, alpha=l.training.SESmodel$alpha, beta=FALSE, gamma=TRUE)
-l.DESmodel = HoltWinters(l, alpha=l.training.DESmodel$alpha, beta=l.training.DESmodel$beta, gamma=TRUE)
-l.HWmodel = HoltWinters(l, alpha=l.training.HWmodel$alpha, beta=l.training.HWmodel$beta, gamma=l.training.HWmodel$gamma)
-
-l.data.start = train.low + 1
-l.data.end = train.low + test.low
-
-l.fit.start = train.low
-l.fit.end = train.low + test.low - 1
-l.SES.MSE = sum((l.SESmodel$fitted[l.fit.start:l.fit.end] - l[l.data.start:l.data.end])^2) / (test.low)
-prediction.l.SES = predict(l.SESmodel, 60, prediction.interval = TRUE)
-plot(l.SESmodel, prediction.l.SES, main = "Low SES Model")
-
-l.fit.start = train.low - 1
-l.fit.end = train.low + test.low - 2
-l.DES.MSE = sum((l.DESmodel$fitted[l.fit.start:l.fit.end] - l[l.data.start:l.data.end])^2) / (test.low)
-prediction.l.DES = predict(l.DESmodel, 60, prediction.interval = TRUE)
-plot(l.DESmodel, prediction.l.DES, main = "Low DES Model")
-
-l.fit.start = train.low - l.cycle + 1
-l.fit.end = train.low + test.low - l.cycle
-l.HW.MSE = sum((l.HWmodel$fitted[l.fit.start:l.fit.end] - l[l.data.start:l.data.end])^2) / (test.low)
-prediction.l.HW = predict(l.HWmodel, 60, prediction.interval = TRUE)
-plot(l.HWmodel, prediction.l.HW, main = "Low HW Model")
-
-cat(paste("SES MSE =",l.SES.MSE,"\nDES MSE =",l.DES.MSE,"\nHW MSE =",l.HW.MSE))
-```
-
 ## Cost Analysis
 
 ### 1. Subsets
@@ -937,8 +756,168 @@ HW.prediction.cost = function(craftgroup) {
 
 ### 4. Priority Time Series
 
+```{r emergency cost}
+emergencycost = normalcost %>% filter(prioritydescription=="EMERGENCY") %>% 
+                           group_by(ymrequested) %>%
+                           summarize(totalcost=sum(actualcosts))%>%
+                           select(totalcost, ymrequested) %>% 
+                           arrange(ymrequested)
 
+e.cost = ts(emergencycost$totalcost, start = c(2001,1), end = c(2019,6), frequency = 12)
+plot(e.cost, main = "Total Cost of Emergency Work Orders")
+```
 
+```{r predict emergency cost}
+train.emergency = 155
+test.emergency = 67
+e.cycle = 12
+
+e.cost.training = ts(emergencycost$totalcost[1:train.emergency], start = c(2001,1), end = c(2019,6), freq=e.cycle) 
+e.cost.training.SESmodel = HoltWinters(e.cost.training, beta=FALSE)
+e.cost.training.HWmodel = HoltWinters(e.cost.training)
+
+e.cost.SESmodel = HoltWinters(e.cost, alpha=e.cost.training.SESmodel$alpha, beta=FALSE, gamma=e.cost.training.SESmodel$gamma)
+e.cost.HWmodel = HoltWinters(e.cost, alpha=e.cost.training.HWmodel$alpha, beta=e.cost.training.HWmodel$beta, gamma=e.cost.training.HWmodel$gamma)
+
+e.cost.data.start = train.emergency + 1
+e.cost.data.end = train.emergency + test.emergency
+
+e.cost.fit.start = train.emergency
+e.cost.fit.end = train.emergency + test.emergency - 1
+e.cost.SES.MSE = sum((e.cost.SESmodel$fitted[e.cost.fit.start:e.cost.fit.end] - e.cost[e.cost.data.start:e.cost.data.end])^2) / (test.emergency)
+
+e.cost.fit.start = train.emergency - e.cycle + 1
+e.cost.fit.end = train.emergency + test.emergency - e.cycle
+e.cost.HW.MSE = sum((e.cost.HWmodel$fitted[e.cost.fit.start:e.cost.fit.end] - e.cost[e.cost.data.start:e.cost.data.end])^2) / (test.emergency)
+
+cat(paste("SES MSE =",e.cost.SES.MSE,"\nHW MSE =",e.cost.HW.MSE))
+
+e.cost.HW.forecast = forecast(e.cost.HWmodel,18)
+e.cost.HW.forecast.plot = plot(e.cost.HW.forecast, main = "HW Forecast of Cost of Emergency WO 2020-2021")
+view(data.frame(e.cost.HW.forecast))
+```
+
+```{r avgcost high}
+highcost = normalcost %>% filter(prioritydescription=="HIGH") %>% 
+                           group_by(ymrequested) %>%
+                           summarize(totalcost=sum(actualcosts))%>%
+                           select(totalcost, ymrequested) %>% 
+                           arrange(ymrequested)
+
+h.cost = ts(highcost$totalcost, start = c(2001,6), end = c(2019,6), frequency = 12)
+plot(h.cost, main = "Cost of High Work Orders")
+```
+```{r predict high cost}
+train.high = 152
+test.high = 65
+h.cycle = 12
+
+h.cost.training = ts(highcost$totalcost[1:train.high], start = c(2001,6), end = c(2019,6), freq=h.cycle) 
+h.cost.training.SESmodel = HoltWinters(h.cost.training, beta=FALSE)
+h.cost.training.HWmodel = HoltWinters(h.cost.training)
+
+h.cost.SESmodel = HoltWinters(h.cost, alpha=h.cost.training.SESmodel$alpha, beta=FALSE, gamma=h.cost.training.SESmodel$gamma)
+h.cost.HWmodel = HoltWinters(h.cost, alpha=h.cost.training.HWmodel$alpha, beta=h.cost.training.HWmodel$beta, gamma=h.cost.training.HWmodel$gamma)
+
+h.cost.data.start = train.high + 1
+h.cost.data.end = train.high + test.high
+
+h.cost.fit.start = train.high
+h.cost.fit.end = train.high + test.high - 1
+h.cost.SES.MSE = sum((h.cost.SESmodel$fitted[h.cost.fit.start:h.cost.fit.end] - h.cost[h.cost.data.start:h.cost.data.end])^2) / (test.high)
+
+h.cost.fit.start = train.high - h.cycle + 1
+h.cost.fit.end = train.high + test.high - h.cycle
+h.cost.HW.MSE = sum((h.cost.HWmodel$fitted[h.cost.fit.start:h.cost.fit.end] - h.cost[h.cost.data.start:h.cost.data.end])^2) / (test.high)
+
+cat(paste("SES MSE =",h.cost.SES.MSE,"\nHW MSE =",h.cost.HW.MSE))
+
+h.cost.HW.forecast = forecast(h.cost.HWmodel,18)
+h.cost.HW.forecast.plot = plot(h.cost.HW.forecast, main = "HW Forecast of Cost of High WO 2020-2021")
+view(summary(h.cost.HW.forecast))
+```
+
+```{r medium cost}
+mediumcost = normalcost %>% filter(prioritydescription=="MEDIUM") %>%
+                           group_by(ymrequested) %>%
+                           summarize(totalcost=sum(actualcosts))%>%
+                           select(totalcost, ymrequested) %>% 
+                           arrange(ymrequested)
+
+m.cost = ts(mediumcost$totalcost, start = c(2001,1), end = c(2019,6), frequency = 12)
+plot(m.cost, main = "Cost of Medium Work Orders")
+```
+
+```{r predict medium cost}
+train.medium = 155
+test.medium = 67
+m.cycle = 12
+
+m.cost.training = ts(mediumcost$totalcost[1:train.medium], start = c(2001,1), end = c(2019,6), freq=m.cycle) 
+m.cost.training.SESmodel = HoltWinters(m.cost.training, beta=FALSE)
+m.cost.training.HWmodel = HoltWinters(m.cost.training)
+
+m.cost.SESmodel = HoltWinters(m.cost, alpha=m.cost.training.SESmodel$alpha, beta=FALSE, gamma=m.cost.training.SESmodel$gamma)
+m.cost.HWmodel = HoltWinters(m.cost, alpha=m.cost.training.HWmodel$alpha, beta=m.cost.training.HWmodel$beta, gamma=m.cost.training.HWmodel$gamma)
+
+m.cost.data.start = train.medium + 1
+m.cost.data.end = train.medium + test.medium
+
+m.cost.fit.start = train.medium
+m.cost.fit.end = train.medium + test.medium - 1
+m.cost.SES.MSE = sum((m.cost.SESmodel$fitted[m.cost.fit.start:m.cost.fit.end] - m.cost[m.cost.data.start:m.cost.data.end])^2) / (test.medium)
+
+m.cost.fit.start = train.medium - m.cycle + 1
+m.cost.fit.end = train.medium + test.medium - m.cycle
+m.cost.HW.MSE = sum((m.cost.HWmodel$fitted[m.cost.fit.start:m.cost.fit.end] - m.cost[m.cost.data.start:m.cost.data.end])^2) / (test.medium)
+
+cat(paste("SES MSE =",m.cost.SES.MSE,"\nHW MSE =",m.cost.HW.MSE))
+
+m.cost.HW.forecast = forecast(m.cost.HWmodel,36)
+m.cost.HW.forecast.plot = plot(m.cost.HW.forecast, main = "HW Forecast of Cost of Medium WO 2020-2021")
+view(summary(m.cost.HW.forecast))
+```
+
+```{r low cost}
+lowcost = normalcost %>% filter(prioritydescription=="LOW") %>% 
+                           group_by(ymrequested) %>%
+                           summarize(totalcost=sum(actualcosts))%>%
+                           select(totalcost, ymrequested) %>% 
+                           arrange(ymrequested)
+
+l.cost = ts(lowcost$totalcost, start = c(2001,1), end = c(2019,6), frequency = 12)
+plot(l.cost, main = "Cost of Low Work Orders")
+```
+
+```{r predict low cost}
+train.low = 157
+test.low = 65
+l.cycle = 12
+
+l.cost.training = ts(lowcost$totalcost[1:train.low], start = c(2001,1), end = c(2019,6), freq=l.cycle) 
+l.cost.training.SESmodel = HoltWinters(l.cost.training, beta=FALSE)
+l.cost.training.HWmodel = HoltWinters(l.cost.training)
+
+l.cost.SESmodel = HoltWinters(l.cost, alpha=l.cost.training.SESmodel$alpha, beta=FALSE, gamma=l.cost.training.SESmodel$gamma)
+l.cost.HWmodel = HoltWinters(l.cost, alpha=l.cost.training.HWmodel$alpha, beta=l.cost.training.HWmodel$beta, gamma=l.cost.training.HWmodel$gamma)
+
+l.cost.data.start = train.low + 1
+l.cost.data.end = train.low + test.low
+
+l.cost.fit.start = train.low
+l.cost.fit.end = train.low + test.low - 1
+l.cost.SES.MSE = sum((l.cost.SESmodel$fitted[l.cost.fit.start:l.cost.fit.end] - l.cost[l.cost.data.start:l.cost.data.end])^2) / (test.low)
+
+l.cost.fit.start = train.low - l.cycle + 1
+l.cost.fit.end = train.low + test.low - l.cycle
+l.cost.HW.MSE = sum((l.cost.HWmodel$fitted[l.cost.fit.start:l.cost.fit.end] - l.cost[l.cost.data.start:l.cost.data.end])^2) / (test.low)
+
+cat(paste("SES MSE =",l.cost.SES.MSE,"\nHW MSE =",l.cost.HW.MSE))
+
+l.cost.HW.forecast = forecast(l.cost.HWmodel,18)
+l.cost.HW.forecast.plot = plot(l.cost.HW.forecast, main = "HW Forecast of Cost of Low WO 2020-2021")
+view(summary(l.cost.HW.forecast))
+```
 ### 5. Efficiency Time Series
 
 1. Request-Created Efficiency

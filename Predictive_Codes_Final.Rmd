@@ -920,6 +920,213 @@ view(summary(l.cost.HW.forecast))
 ```
 ### 5. Efficiency Time Series
 
-1. Request-Created Efficiency
+1. *AKUL. SES, Holt-Winters time series to predict mean of future Request-Created and Request-Completed Efficiencies
 
-2. Request-Completed Efficiency
+
+
+2. GLM-loess time series to predict future individual work orders with corresponding request-created and requested-completed efficiencies
+
+```{r}
+#check how many craft groups there are
+#build a model for one craft group, copy & paste for others
+unique(priority$craftgroup)
+
+avg_cr_ef <- mean(priority$createffi)
+avg_tot_ef <- mean(priority$totaleffi)
+
+#create efficiency as a percentage of the avg create efficiency
+priority %>%
+  mutate(cr_ef_percent = ((createffi/(avg_cr_ef))*100))-> priority_1
+
+priority_1 %>%
+  mutate(tot_ef_percent = ((totaleffi/(avg_tot_ef))*100))-> priority_2
+
+#building the model to be applied to all other craft groups
+#priority_2 %>%
+  #filter(craftgroup == "PLUMBING/RESTROOM") -> plumbing_rest_prio
+
+#priority_2 %>%
+  #filter(craftgroup == "FURNITURES/UTILITIES/APPLIANCES") -> plumbing_rest_prio
+
+#priority_2 %>%
+  #filter(craftgroup == "OUTDOORS") -> plumbing_rest_prio
+
+#priority_2 %>%
+  #filter(craftgroup == "EVENT/RECREATION/F&B") -> plumbing_rest_prio
+
+#priority_2 %>%
+  #filter(craftgroup == "CONSTRUCTION/BUILDING") -> plumbing_rest_prio
+
+#priority_2 %>%
+  #filter(craftgroup == "IT/NETWORK") -> plumbing_rest_prio
+
+#priority_2 %>%
+  #filter(craftgroup == "PLANT/MATERIALS") -> plumbing_rest_prio
+
+#priority_2 %>%
+  #filter(craftgroup == "PREVENTIVE/SCHEDULED") -> plumbing_rest_prio
+
+#priority_2 %>%
+ #filter(craftgroup == "INSPECTION") -> plumbing_rest_prio
+
+#priority_2 %>%
+  #filter(craftgroup == "CODES") -> plumbing_rest_prio
+#doesn't work
+
+#priority_2 %>%
+  #filter(craftgroup == "OTHER") -> plumbing_rest_prio
+
+#priority_2 %>%
+  #filter(craftgroup == "ELECTRICITY/ENERGY") -> plumbing_rest_prio
+
+#priority_2 %>%
+  #filter(craftgroup == "HEALTH/SAFETY/SECURITY") -> plumbing_rest_prio
+
+#priority_2 %>%
+  #filter(craftgroup == "CLEANING/SANITIZATION") -> plumbing_rest_prio
+
+#priority_2 %>%
+  #filter(craftgroup == "UNCLEAR/TBD") -> plumbing_rest_prio
+
+#priority_2 %>%
+  #filter(craftgroup == "VEHICLE/TRANSPORTATION/DELIVERY") -> plumbing_rest_prio
+
+#priority_2 %>%
+ # filter(craftgroup == "ADMIN/PERSONNEL/TRAINING") -> plumbing_rest_prio
+
+#priority_2 %>%
+  #filter(craftgroup == "SOS") -> plumbing_rest_prio
+
+#priority_2 %>%
+  #filter(craftgroup == "CONTRACT") -> plumbing_rest_prio
+
+
+```
+
+```{r}
+
+
+plum_rest <- plumbing_rest_prio %>%
+    select(datecreated, tot_ef_percent) %>%
+    rename(date  = datecreated,
+           value = tot_ef_percent)
+
+
+```
+
+```{r}
+plum_rest %>%
+    ggplot(aes(x = date, y = value)) +
+    geom_rect(xmin = ymd("2016-01-01"),
+              xmax = ymd("2019-12-31"),
+              ymin = 0, ymax = max(plum_rest$value),
+              fill = palette_light()[[4]], alpha = 0.01) +
+    geom_point(alpha = 0.5, color = palette_light()[[1]]) +
+    labs(title = "create efficiency", x = "", y = "%") +
+    theme_tq()
+```
+
+```{r}
+#split into train and test sets
+plum_rest %>% 
+  filter(date < ymd("2016-01-01")) -> train_tbl
+
+plum_rest %>% 
+  filter(date >= ymd("2016-01-01")) -> test_tbl
+
+#adding time series signature
+recipe(value ~ ., data = train_tbl) %>%
+    step_timeseries_signature(date) -> recipe_spec_timeseries
+
+bake(prep(recipe_spec_timeseries), new_data = train_tbl)
+
+recipe_spec_timeseries %>%
+    step_rm(date) %>%
+    step_rm(contains("iso"), contains("minute"), contains("hour"),
+            contains("am.pm"), contains("xts")) %>%
+    step_normalize(contains("index.num"), date_year) %>%
+    step_dummy(contains("lbl"), one_hot = TRUE) %>%
+    step_ns(date_index.num, deg_free = 3) -> recipe_spec_final
+
+bake(prep(recipe_spec_final), new_data = train_tbl)
+
+linear_reg(mode = "regression", penalty = 0.001, mixture = 0.5) %>%
+    set_engine("glmnet") -> model_spec_glmnet
+
+workflow() %>%
+    add_recipe(recipe_spec_final) %>%
+    add_model(model_spec_glmnet) -> workflow_glmnet
+
+workflow_glmnet %>% 
+  fit(data = train_tbl) -> workflow_trained
+
+workflow_trained %>% 
+    predict(test_tbl) %>%
+    bind_cols(test_tbl) -> prediction_tbl
+
+```
+
+```{r}
+#new plot with prediction v actual side by side for 2016 onwards
+#to see how good the model we built was against actual data
+plum_rest %>%
+    ggplot(aes(x = date, y = value)) +
+  #can we somehow modify this so the test region is shaded
+  #and train region is not
+  #same problem happens in original scatterplot
+    #geom_rect(xmin = ymd("2016-01-01"),
+              #xmax = ymd("2019-12-31"),
+              #ymin = 0, ymax = max(plum_rest$value),
+              #fill = palette_light()[[4]], alpha = 0.01) +
+    geom_point(alpha = 0.5, color = palette_light()[[1]]) +
+    labs(title = "create efficiency", x = "", y = "%") +
+    geom_point(aes(x = date, y = .pred), data = prediction_tbl, 
+               alpha = 0.5, color = palette_light()[[2]]) +
+    theme_tq()
+
+
+
+
+
+```
+
+```{r}
+#forecasting future data
+# Extract create efficiency index
+plum_rest %>% 
+  tk_index() -> idx
+idx %>%
+  # Get time series summary from index
+  tk_get_timeseries_summary()-> bikes_summary
+
+
+idx %>% 
+  tk_make_future_timeseries(n_future = 18000) -> idx_future
+
+tibble(date = idx_future)  -> future_tbl
+
+workflow_glmnet %>% 
+    fit(data = plum_rest) %>%
+    predict(future_tbl) %>%
+    bind_cols(future_tbl) -> future_predictions_tbl 
+
+#forecasting for next 6 months scatterplot
+plum_rest %>%
+    ggplot(aes(x = date, y = value)) +
+  #can we somehow modify this so the test region is shaded
+  #and train region is not
+  #same problem happens in original scatterplot
+    #geom_rect(xmin = ymd("2016-01-01"),
+              #xmax = ymd("2019-12-31"),
+              #ymin = 0, ymax = max(plum_rest$value),
+              #fill = palette_light()[[4]], alpha = 0.01) +
+    geom_point(alpha = 0.5, color = palette_light()[[1]]) +
+    labs(title = "total efficiency for CONTRACT", x = "", y="%") +
+     geom_point(aes(x = date, y = .pred), data = future_predictions_tbl,
+               alpha = 0.5, color = palette_light()[[2]]) +
+    geom_smooth(aes(x = date, y = .pred), data = future_predictions_tbl,
+                method = 'loess') + 
+    theme_tq()
+
+ggsave("contract_tot_ef_1.png")
+```

@@ -909,30 +909,30 @@ HW.prediction.cost("SOS")
 othercost = normalcost %>% filter(craftgroup %in% c("CODES", "OTHER", "UNCLEAR/TBD")) %>% 
   group_by(ymrequested) %>% 
   summarize(wocount = sum(actualcosts))
-totalts = ts(costts$totalcost, start = c(2001,1), end = c(2019,8), frequency = 12)
+othercostts = ts(othercostts$othercost, start = c(2001,1), end = c(2019,8), frequency = 12)
 plot(othercosts)
 ```
 ```{r totalcost_testMSE_other}
-test.periods <- length(othercountts) - train.periods
+test.periods <- length(othercost) - train.periods
 
-othercountts.training <- ts(othercount$wocount[1:train.periods], start = c(2001,1), end = c(2019,6), frequency = 12)
+othercountts.training <- ts(othercost$totalcost[1:train.periods], start = c(2001,1), end = c(2019,6), frequency = 12)
 
-othercountts.training.SESmodel <- HoltWinters(othercountts.training, beta=FALSE0, gamma=FALSE)
-othercountts.training.DESmodel <- HoltWinters(othercountts.training, gamma=FALSE)
-othercountts.training.HWmodel <- HoltWinters(othercountts.training)
+othercountts.training.SESmodel <- HoltWinters(othercostts.training, beta=FALSE0, gamma=FALSE)
+othercountts.training.DESmodel <- HoltWinters(othercostts.training, gamma=FALSE)
+othercountts.training.HWmodel <- HoltWinters(othercostts.training)
 
 othercountts.SESmodel <- HoltWinters(othercountts,
-                          alpha=othercountts.training.SESmodel$alpha, 
+                          alpha=othercostts.training.SESmodel$alpha, 
                           beta=FALSE, 
                           gamma=FALSE)
-othercountts.DESmodel <- HoltWinters(othercountts, 
-                          alpha=othercountts.training.DESmodel$alpha, 
-                          beta=othercountts.training.DESmodel$beta, 
+othercountts.DESmodel <- HoltWinters(othercostts, 
+                          alpha=othercostts.training.DESmodel$alpha, 
+                          beta=othercostts.training.DESmodel$beta, 
                           gamma=FALSE)
-othercountts.HWmodel <- HoltWinters(othercountts, 
-                         alpha=othercountts.training.HWmodel$alpha, 
-                         beta=othercountts.training.HWmodel$beta, 
-                         gamma=othercountts.training.HWmodel$gamma)
+othercountts.HWmodel <- HoltWinters(othercostts, 
+                         alpha=othercostts.training.HWmodel$alpha, 
+                         beta=othercostts.training.HWmodel$beta, 
+                         gamma=othercostts.training.HWmodel$gamma)
 
 data.start <- train.periods + 1
 data.end <- train.periods + test.periods
@@ -940,25 +940,25 @@ data.end <- train.periods + test.periods
 fit.start <- train.periods 
 fit.end <- train.periods + test.periods - 1
 
-SES.MSE <- sum((othercountts.SESmodel$fitted[fit.start:fit.end] - othercountts[data.start:data.end])^2)/(test.periods)
+SES.MSE <- sum((othercostts.SESmodel$fitted[fit.start:fit.end] - othercostts[data.start:data.end])^2)/(test.periods)
 
 fit.start <- train.periods - 1 
 fit.end <- train.periods + test.periods - 2
 
-DES.MSE <- sum((othercountts.DESmodel$fitted[fit.start:fit.end] - othercountts[data.start:data.end])^2)/(test.periods)
+DES.MSE <- sum((othercostts.DESmodel$fitted[fit.start:fit.end] - othercostts[data.start:data.end])^2)/(test.periods)
 
 fit.start <- train.periods - cycle + 1 
 fit.end <- train.periods + test.periods - cycle
 
-HW.MSE <- sum((othercountts.HWmodel$fitted[fit.start:fit.end] - othercountts[fit.start:fit.end])^2)/(test.periods)
+HW.MSE <- sum((othercostts.HWmodel$fitted[fit.start:fit.end] - othercostts[fit.start:fit.end])^2)/(test.periods)
 
 cat(paste("SES MSE =", SES.MSE, "\nDES MSE =", DES.MSE, "\nHW MSE =", HW.MSE))
 ```
 
 ```{r wocountts_predict_other}
-plot(othercountts.HWmodel)
-othercount_2020_HW = forecast(othercountts.HWmodel, 15)
-plot(othercount_2020_HW, main = "Holtwinters other Forecast for 2019-2020")
+plot(othercostts.HWmodel)
+othercost_2020_HW = forecast(othercostts.HWmodel, 15)
+plot(othercost_2020_HW, main = "Holtwinters other Forecast for 2019-2020")
 ```
 
 ### 4. Priority Time Series

@@ -1,6 +1,6 @@
 ---
 title: "Practicum Final Report"
-author: "Team 2 - Anh Do, Tushar Jethani, Akul Malhotra, MaiHuong Nguyen, Andy Truong"
+author: "Team 2 - Anh (Alice) Do, Tushar Jethani, Akul Malhotra, MaiHuong (Maria) Nguyen, Andy Truong"
 date: "April 27, 2020"
 output: html_document
 ---
@@ -20,7 +20,6 @@ library(scales)
 library(forecast)
 library(imputeTS)
 library(TSstudio)
-dim(priority)
 ```
 
 ```{r new, cache=T}
@@ -72,6 +71,7 @@ costdata = requested %>% filter(currentstatus %in% c("Completed", "Closed"),
   filter(prioritydescription != "OTHER") %>%
   select(actualcosts, craftgroup, daterequested, actualcompletiondate, prioritydescription, ymrequested, ymcompleted) %>% 
   mutate(totaleffi = abs(as.numeric(round((actualcompletiondate - daterequested)/3600), digits = 2)))
+
 zerocost = costdata %>% filter(actualcosts == 0)
 nonzerocost = costdata %>% filter(actualcosts != 0)
 normalcost = costdata %>% filter(actualcosts < 3500, actualcosts > 0)
@@ -84,12 +84,16 @@ highcost = costdata %>% filter(actualcosts > 10000)
 ```{r costreg}
 regall = lm(actualcosts ~ craftgroup + totaleffi + prioritydescription, data = costdata)
 summary(regall)
+
 regnonzero = lm(actualcosts ~ craftgroup + totaleffi + prioritydescription, data = nonzerocost)
 summary(regnonzero)
+
 regnormal = lm(actualcosts ~ craftgroup + totaleffi + prioritydescription, data = normalcost)
 summary(regnormal)
+
 regmedium = lm(actualcosts ~ craftgroup + totaleffi + prioritydescription, data = mediumcost)
 summary(regmedium)
+
 reghigh = lm(actualcosts ~ craftgroup + totaleffi + prioritydescription, data = highcost)
 summary(reghigh)
 ```
@@ -155,6 +159,7 @@ COUNT_TS_MSE = function(craftgroup) {
               round(MSE[which.min(MSE)]))) 
   
 }
+
 #For Total Cost of Work Orders in each Craft Group
 COST_TS_MSE = function(craftgroup) {
   tsdata = nonzerocost %>% filter(craftgroup == !!craftgroup) %>% 
@@ -257,7 +262,7 @@ SES.prediction = function(craftgroup) {
   forec = forecast(ts.SESmodel, 18)
   SES.plot = plot(ts.SESmodel)
   forecast.plot = plot(forec, main = "Single Exponential Smoothing Forecast for 2019-2020")
-  forecast.plot
+  list(SES.plot, forec, forecast.plot)
 }
 ```
 
@@ -293,7 +298,7 @@ HW.prediction = function(craftgroup) {
   forec = forecast(ts.HWmodel, 18)
   HW.plot = plot(ts.HWmodel)
   forecast.plot = plot(forec, main = "Holtwinter Seasonality Forecast for 2019-2020")
-  list(HW.plot, forecast.plot)
+  list(HW.plot, forec, forecast.plot)
   
 }
 ```
@@ -468,51 +473,6 @@ HW.prediction("SOS")
 AVG_TS("SOS")
 ```
 
-**3.1.17 Others** 
-```{r wocountts_predict_other}
-othercount = nonzerocost %>% filter(craftgroup %in% c("CODES", "OTHER", "UNCLEAR/TBD")) %>% 
-  group_by(ymrequested) %>% 
-  summarize(wocount = n())
-othercountts = ts(othercount$wocount, start = c(2001,4), end = c(2019,6), frequency = 12)
-plot(othercountts)
-```
-```{r wocountts_testMSE_other}
-test.periods <- length(othercountts) - train.periods
-othercountts.training <- ts(othercount$wocount[1:train.periods], start = c(2001,1), end = c(2019,6), frequency = 12)
-othercountts.training.SESmodel <- HoltWinters(othercountts.training, beta=FALSE0, gamma=FALSE)
-othercountts.training.DESmodel <- HoltWinters(othercountts.training, gamma=FALSE)
-othercountts.training.HWmodel <- HoltWinters(othercountts.training)
-othercountts.SESmodel <- HoltWinters(othercountts,
-                          alpha=othercountts.training.SESmodel$alpha, 
-                          beta=FALSE, 
-                          gamma=FALSE)
-othercountts.DESmodel <- HoltWinters(othercountts, 
-                          alpha=othercountts.training.DESmodel$alpha, 
-                          beta=othercountts.training.DESmodel$beta, 
-                          gamma=FALSE)
-othercountts.HWmodel <- HoltWinters(othercountts, 
-                         alpha=othercountts.training.HWmodel$alpha, 
-                         beta=othercountts.training.HWmodel$beta, 
-                         gamma=othercountts.training.HWmodel$gamma)
-data.start <- train.periods + 1
-data.end <- train.periods + test.periods
-fit.start <- train.periods 
-fit.end <- train.periods + test.periods - 1
-SES.MSE <- sum((othercountts.SESmodel$fitted[fit.start:fit.end] - othercountts[data.start:data.end])^2)/(test.periods)
-fit.start <- train.periods - 1 
-fit.end <- train.periods + test.periods - 2
-DES.MSE <- sum((othercountts.DESmodel$fitted[fit.start:fit.end] - othercountts[data.start:data.end])^2)/(test.periods)
-fit.start <- train.periods - cycle + 1 
-fit.end <- train.periods + test.periods - cycle
-HW.MSE <- sum((othercountts.HWmodel$fitted[fit.start:fit.end] - othercountts[fit.start:fit.end])^2)/(test.periods)
-cat(paste("SES MSE =", SES.MSE, "\nDES MSE =", DES.MSE, "\nHW MSE =", HW.MSE))
-```
-```{r wocountts_predict_other}
-plot(othercountts.HWmodel)
-othercount_2020_HW = forecast(othercountts.HWmodel, 15)
-plot(othercount_2020_HW, main = "Holtwinters other Forecast for 2019-2020")
-```
-
 ####3.2. Time Series by requested date to predict total costs
 
 ```{r setupts}
@@ -619,7 +579,7 @@ SES.prediction.cost = function(craftgroup) {
   forec = forecast(ts.SESmodel, 18)
   SES.plot = plot(ts.SESmodel)
   forecast.plot = plot(forec, main = "Single Exponential Smoothing Cost Forecast for 2019-2020")
-  list(SES.plot, forecast.plot)
+  list(SES.plot, forec, forecast.plot)
   
 }
 ```
@@ -657,7 +617,7 @@ HW.prediction.cost = function(craftgroup) {
   forec = forecast(ts.HWmodel, 18)
   HW.plot = plot(ts.HWmodel)
   forecast.plot = plot(forec, main = "Holtwinter Seasonality Cost Forecast for 2019-2020")
-  list(HW.plot, forecast.plot)
+  list(HW.plot, forec, forecast.plot)
   
 }
 ```
@@ -800,50 +760,6 @@ COST_TS_MSE("SOS")
 HW.prediction.cost("SOS")
 ```
 
-**3.2.17 Others**
-```{r totalcost_other}
-othercost = normalcost %>% filter(craftgroup %in% c("CODES", "OTHER", "UNCLEAR/TBD")) %>% 
-  group_by(ymrequested) %>% 
-  summarize(wocount = sum(actualcosts))
-othercostts = ts(othercostts$othercost, start = c(2001,1), end = c(2019,8), frequency = 12)
-plot(othercosts)
-```
-```{r totalcost_testMSE_other}
-test.periods <- length(othercost) - train.periods
-othercountts.training <- ts(othercost$totalcost[1:train.periods], start = c(2001,1), end = c(2019,6), frequency = 12)
-othercountts.training.SESmodel <- HoltWinters(othercostts.training, beta=FALSE0, gamma=FALSE)
-othercountts.training.DESmodel <- HoltWinters(othercostts.training, gamma=FALSE)
-othercountts.training.HWmodel <- HoltWinters(othercostts.training)
-othercountts.SESmodel <- HoltWinters(othercountts,
-                          alpha=othercostts.training.SESmodel$alpha, 
-                          beta=FALSE, 
-                          gamma=FALSE)
-othercountts.DESmodel <- HoltWinters(othercostts, 
-                          alpha=othercostts.training.DESmodel$alpha, 
-                          beta=othercostts.training.DESmodel$beta, 
-                          gamma=FALSE)
-othercountts.HWmodel <- HoltWinters(othercostts, 
-                         alpha=othercostts.training.HWmodel$alpha, 
-                         beta=othercostts.training.HWmodel$beta, 
-                         gamma=othercostts.training.HWmodel$gamma)
-data.start <- train.periods + 1
-data.end <- train.periods + test.periods
-fit.start <- train.periods 
-fit.end <- train.periods + test.periods - 1
-SES.MSE <- sum((othercostts.SESmodel$fitted[fit.start:fit.end] - othercostts[data.start:data.end])^2)/(test.periods)
-fit.start <- train.periods - 1 
-fit.end <- train.periods + test.periods - 2
-DES.MSE <- sum((othercostts.DESmodel$fitted[fit.start:fit.end] - othercostts[data.start:data.end])^2)/(test.periods)
-fit.start <- train.periods - cycle + 1 
-fit.end <- train.periods + test.periods - cycle
-HW.MSE <- sum((othercostts.HWmodel$fitted[fit.start:fit.end] - othercostts[fit.start:fit.end])^2)/(test.periods)
-cat(paste("SES MSE =", SES.MSE, "\nDES MSE =", DES.MSE, "\nHW MSE =", HW.MSE))
-```
-```{r wocountts_predict_other}
-plot(othercostts.HWmodel)
-othercost_2020_HW = forecast(othercostts.HWmodel, 15)
-plot(othercost_2020_HW, main = "Holtwinters other Forecast for 2019-2020")
-```
 
 ### 4. Priority Time Series
 
@@ -987,17 +903,20 @@ view(summary(l.cost.HW.forecast))
 
 ####5.1 GLM-loess time series to predict future individual work orders with corresponding request-created and requested-completed efficiencies
 
-```{r}
+```{r glmsetup}
 #check how many craft groups there are
 #build a model for one craft group, copy & paste for others
-unique(priority$craftgroup)
+#unique(priority$craftgroup)
+
 avg_cr_ef <- mean(priority$createffi)
 avg_tot_ef <- mean(priority$totaleffi)
+
 #create efficiency as a percentage of the avg create efficiency
 priority %>%
   mutate(cr_ef_percent = ((createffi/(avg_cr_ef))*100))-> priority_1
 priority_1 %>%
   mutate(tot_ef_percent = ((totaleffi/(avg_tot_ef))*100))-> priority_2
+  
 #building the model to be applied to all other craft groups
 #priority_2 %>%
   #filter(craftgroup == "PLUMBING/RESTROOM") -> plumbing_rest_prio
@@ -1040,14 +959,14 @@ priority_1 %>%
   #filter(craftgroup == "CONTRACT") -> plumbing_rest_prio
 ```
 
-```{r}
+```{r glmplumb1}
 plum_rest <- plumbing_rest_prio %>%
     select(datecreated, tot_ef_percent) %>%
     rename(date  = datecreated,
            value = tot_ef_percent)
 ```
 
-```{r}
+```{r glmplumbviz}
 plum_rest %>%
     ggplot(aes(x = date, y = value)) +
     geom_rect(xmin = ymd("2016-01-01"),
@@ -1059,7 +978,7 @@ plum_rest %>%
     theme_tq()
 ```
 
-```{r}
+```{r glmvalidset}
 #split into train and test sets
 plum_rest %>% 
   filter(date < ymd("2016-01-01")) -> train_tbl
@@ -1089,7 +1008,7 @@ workflow_trained %>%
     bind_cols(test_tbl) -> prediction_tbl
 ```
 
-```{r}
+```{r glmplumbviz2}
 #new plot with prediction v actual side by side for 2016 onwards
 #to see how good the model we built was against actual data
 plum_rest %>%
@@ -1108,7 +1027,7 @@ plum_rest %>%
     theme_tq()
 ```
 
-```{r}
+```{r glmplumbpred}
 #forecasting future data
 # Extract create efficiency index
 plum_rest %>% 
@@ -1200,13 +1119,12 @@ plot(forecast_values.Z, xlab = "Time", ylab = "Overall Create Efficiency (in %ag
 ```
 
 **Plumbing**
-```{r plumbing}
-#install.packages(TSstudio)
-unique(priority$craftgroup)
+```{r eftsplumbing}
 priority_plumbing_2 <- priority %>% filter(craftgroup =="PLUMBING/RESTROOM") %>% mutate(year = year(actualcompletiondate))%>%  mutate(perc_totaleffi = totaleffi /round(mean(totaleffi))) %>% select( actualcompletiondate, perc_totaleffi)%>% arrange(actualcompletiondate)
 Y<-ts(priority_plumbing_2$perc_totaleffi, start = c(2001,1), end = c(2019,12), frequency = 12)
 plot(Y)
 sm <- ma(Y, order=3); lines(sm, col = "red")
+
 #The moving average smoother averages the nearest order periods of each observation. As neighbouring observations of a time series are likely to be similar in value, averaging eliminates some of the randomness in the data, leaving a smooth trend-cycle component.
 plot(Y)
 #Split for total efficiency
@@ -1214,12 +1132,14 @@ plumbing_split<- ts_split(Y)
 plumbing_training <- split_plumbing$train
 plumbing_testing <- split_plumbing$test
 plot(plumbing_training); plot(plumbing_testing)
- #SES_seasonality
+
+#SES_seasonality
  DES.training.Y<-HoltWinters(plumbing_training, beta = FALSE)
  plot(DES.training.Y)
  y.DESmodel<-HoltWinters(plumbing_testing, alpha = DES.training.Y$alpha, gamma = DES.training.Y$gamma, beta = F)
 plot(y.DESmodel)
  y.DESmodel$SSE
+
 #Holtwinters
 holtWinters.training.Y<-HoltWinters(plumbing_training)
 plot(holtWinters.training.Y)
@@ -1233,11 +1153,12 @@ plot(forecast_values.Y, xlab = "Time", ylab = "Total Efficiency (in %age)", main
 ```
 
 **Others**
-```{r others}
+```{r eftsothers}
 priority_others_2<-priority %>% filter(craftgroup == "OTHER") %>% mutate(year = year(actualcompletiondate))%>%  mutate(perc_totaleffi = totaleffi/round(mean(totaleffi))) %>% select(actualcompletiondate, perc_totaleffi)
 Y<-ts(priority_others_2$perc_totaleffi, start = c(2001,7), end = c(2019,12), frequency = 12)
 plot(Y)
 sm <- ma(Y, order=3); lines(sm, col = "red")
+
 #The moving average smoother averages the nearest order periods of each observation. As neighbouring observations of a time series are likely to be similar in value, averaging eliminates some of the randomness in the data, leaving a smooth trend-cycle component.
 plot(Y)
 #Split for total efficiency
@@ -1245,19 +1166,22 @@ others_split <- ts_split(Y)
 others_training <- others_split$train
 others_testing <- others_split$test
 plot(others_training); plot(others_testing)
+
 #SES_Seasonality
 DES.training.Y<-HoltWinters(others_training, beta = FALSE)
 plot(DES.training.Y)
 y.DESmodel<-HoltWinters(others_testing,alpha = DES.training.Y$alpha, gamma = DES.training.Y$gamma, beta = F)
 plot(y.DESmodel)
 y.DESmodel$SSE
- #holtwinters
+
+#holtwinters
 holtWinters.training.Y<-HoltWinters(others_training)
 plot(holtWinters.training.Y)
 y.HWmodel <- HoltWinters(others_testing, alpha = holtWinters.training.Y$alpha, beta = holtWinters.training.Y$beta, gamma = holtWinters.training.Y$gamma)
 # x.HWmodel$fitted
  plot(y.HWmodel)
  y.HWmodel$SSE#use this one
+
 #USE HW model for prediction
 forecast_values.Y <- forecast(y.DESmodel, h=65)
 predict(holtWinters.training.Y , 65)
@@ -1265,7 +1189,7 @@ plot(forecast_values.Y, xlab = "Time", ylab = "Total Efficiency (in %age)", main
 ```
 
 **Furnitures/Utilities/Appliances**
-```{r}
+```{r eftsfurn}
 priority_furniture_2<-priority %>% filter(craftgroup=="FURNITURES/UTILITIES/APPLIANCES") %>% mutate(year = year(actualcompletiondate))%>%  mutate(perc_totaleffi = totaleffi/round(mean(totaleffi))) %>% select(actualcompletiondate, perc_totaleffi) %>% arrange(actualcompletiondate)
 Y<-ts(priority_furniture_2$perc_totaleffi, start = c(2001,7), end = c(2019,12), frequency = 12)
 plot(Y)
@@ -1295,7 +1219,7 @@ plot(forecast_values.Y,xlab = "Time", ylab = "Total Efficiency (in %age)", main 
 ```
 
 **ELECTRICITY/ENERGY**
-```{r}
+```{r eftselec}
 priority_electricity_2<-priority %>% filter(craftgroup=="ELECTRICITY/ENERGY") %>% mutate(year = year(actualcompletiondate))%>%  mutate(perc_totaleffi = totaleffi/round(mean(totaleffi))) %>% select(actualcompletiondate, perc_totaleffi) %>% arrange(actualcompletiondate)
 Y <- ts(priority_electricity_2$perc_totaleffi, start = c(2001), end = c(2019, 12), frequency = 12)
 plot(Y)
@@ -1325,7 +1249,7 @@ plot(forecast_values.Y,xlab = "Time", ylab = "Total Efficiency (in %age)", main 
 ```
 
 **Outdoors**
-```{r Outdoors}
+```{r eftsoutdoors}
 priority_outdoors_2<-priority %>% filter(craftgroup=="OUTDOORS") %>% mutate(year = year(actualcompletiondate))%>%  mutate(perc_totaleffi = totaleffi/round(mean(totaleffi))) %>% select(actualcompletiondate, perc_totaleffi) %>% arrange(actualcompletiondate)
 Y<-ts(priority_outdoors_2$perc_totaleffi, start = c(2001, 1), end = c(2019, 12), frequency = 12)
 plot(Y)
@@ -1354,7 +1278,7 @@ plot(forecast_values.Y, xlab = "Time", ylab = "Total Efficiency (in %age)", main
 ```
 
 **HEALTH/SAFETY/SECURITY**
-```{r health}
+```{r eftshealth}
 priority_health_2<-priority %>% filter(craftgroup=="HEALTH/SAFETY/SECURITY") %>% mutate(year = year(actualcompletiondate))%>%  mutate(perc_totaleffi = totaleffi/round(mean(totaleffi))) %>% select(actualcompletiondate, perc_totaleffi) %>% arrange(actualcompletiondate)
 Y<-ts(priority_health_2$perc_totaleffi, start = c(2001,1), end = c(2019,12), frequency = 12)
 plot(Y)
@@ -1384,7 +1308,7 @@ plot(forecast_values.Y, xlab = "Time", ylab = "Total Efficiency (in %age)", main
 ```
 
 **EVENT/RECREATION/F&B**
-```{r}
+```{r eftsevent}
 priority_events_2<-priority %>% filter(craftgroup=="EVENT/RECREATION/F&B") %>% mutate(year = year(actualcompletiondate))%>%  mutate(perc_totaleffi = totaleffi/round(mean(totaleffi))) %>% select(actualcompletiondate, perc_totaleffi) %>% arrange(actualcompletiondate)
 Y<-ts(priority_events_2$perc_totaleffi, start = c(2001), end = c(2019, 12), frequency = 12)
 plot(Y)
@@ -1414,7 +1338,7 @@ plot(forecast_values.Y, xlab = "Time", ylab = "Total Efficiency (in %age)", main
 ```
 
 **CLEANING/SANITIZATION**
-```{r cleaning}
+```{r eftscleaning}
 priority_cleaning_2<-priority %>% filter(craftgroup=="CLEANING/SANITIZATION") %>% mutate(year = year(actualcompletiondate))%>%  mutate(perc_totaleffi = totaleffi/round(mean(totaleffi))) %>% select(actualcompletiondate, perc_totaleffi) %>% arrange(actualcompletiondate)
 Y<-ts(priority_cleaning_2$perc_totaleffi, start = c(2001), end = c(2019, 12), frequency = 12)
 plot(Y)
@@ -1445,7 +1369,7 @@ plot(forecast_values.Y, xlab = "Time", ylab = "Total Efficiency (in %age)", main
 ```
 
 **CONSTRUCTION/BUILDING**
-```{r construction}
+```{r eftsconstruction}
 priority_construction_2<-priority %>% filter(craftgroup=="CONSTRUCTION/BUILDING") %>% mutate(year = year(actualcompletiondate))%>%  mutate(perc_totaleffi = totaleffi/round(mean(totaleffi))) %>% select(actualcompletiondate, perc_totaleffi) %>% arrange(actualcompletiondate)
 Y<-ts(priority_construction_2$perc_totaleffi, start = c(2001), end = c(2019, 12), frequency = 12)
 plot(Y)
@@ -1475,7 +1399,7 @@ plot(forecast_values.Y, xlab = "Time", ylab = "Total Efficiency (in %age)", main
 ```
 
 **UNCLEAR/TBD**
-```{r unclear}
+```{r eftsunclear}
 priority_unclear_2<-priority %>% filter(craftgroup=="UNCLEAR/TBD") %>% mutate(year = year(actualcompletiondate))%>%  mutate(perc_totaleffi = totaleffi/round(mean(totaleffi))) %>% select(actualcompletiondate, perc_totaleffi) %>% arrange(actualcompletiondate)
 Y<-ts(priority_unclear_2$perc_totaleffi, start = c(2001), end = c(2019), frequency = 12)
 plot(Y)
@@ -1506,7 +1430,7 @@ plot(forecast_values.Y, xlab = "Time", ylab = "Total Efficiency (in %age)", main
 ```
 
 **IT/NETWORK**
-```{r ITNetwork}
+```{r eftsITNetwork}
 priority_network_2<-priority %>% filter(craftgroup=="IT/NETWORK") %>% mutate(year = year(actualcompletiondate))%>%  mutate(perc_totaleffi = totaleffi/round(mean(totaleffi))) %>% select(actualcompletiondate, perc_totaleffi) %>% arrange(actualcompletiondate)
 Y<-ts(priority_network_2$perc_totaleffi, start = c(2001), end = c(2019, 12), frequency = 12)
 plot(Y)
@@ -1536,7 +1460,7 @@ plot(forecast_values.Y, xlab = "Time", ylab = "Total Efficiency (in %age)", main
 ```
 
 **VEHICLE/TRANSPORTATION/DELIVERY**
-```{r transport}
+```{r eftstransport}
 priority_transport_2<-priority %>% filter(craftgroup=="VEHICLE/TRANSPORTATION/DELIVERY") %>% mutate(year = year(actualcompletiondate))%>%  mutate(perc_totaleffi = totaleffi/round(mean(totaleffi))) %>% select(actualcompletiondate, perc_totaleffi) %>% arrange(actualcompletiondate)
 Y<-ts(priority_transport_2$perc_totaleffi, start = c(2001), end = c(2019, 12), frequency = 12)
 plot(Y)
@@ -1566,7 +1490,7 @@ plot(forecast_values.Y,xlab = "Time", ylab = "Total Efficiency (in %age)", main 
 ```
 
 **PLANT**
-```{r plant}
+```{r eftsplant}
 priority_plant_2<-priority %>% filter(craftgroup=="PLANT/MATERIALS") %>% mutate(year = year(actualcompletiondate))%>%  mutate(perc_totaleffi = totaleffi/round(mean(totaleffi))) %>% select(actualcompletiondate, perc_totaleffi) %>% arrange(actualcompletiondate)
 Y<-ts(priority_plant_2$perc_totaleffi, start = c(2001), end = c(2019, 12), frequency = 12)
 plot(Y)
@@ -1596,7 +1520,7 @@ plot(forecast_values.Y, xlab = "Time", ylab = "Total Efficiency (in %age)", main
 ```
 
 **ADMIN**
-```{r admin}
+```{r eftsadmin}
 priority_admin_2<-priority %>% filter(craftgroup=="VEHICLE/TRANSPORTATION/DELIVERY") %>% mutate(year = year(actualcompletiondate))%>%  mutate(perc_totaleffi = totaleffi/round(mean(totaleffi))) %>% select(actualcompletiondate, perc_totaleffi) %>% arrange(actualcompletiondate)
 Y<-ts(priority_admin_2$perc_totaleffi, start = c(2001), end = c(2019, 12), frequency = 12)
 plot(Y)
@@ -1626,7 +1550,7 @@ plot(forecast_values.Y, xlab = "Time", ylab = "Total Efficiency (in %age)", main
 ```
 
 **PREVENTIVE/SCHEDULED**
-```{r ps}
+```{r eftsps}
 priority_ps_2<-priority %>% filter(craftgroup=="PREVENTIVE/SCHEDULED") %>% mutate(year = year(actualcompletiondate))%>%  mutate(perc_totaleffi = totaleffi/round(mean(totaleffi))) %>% select(actualcompletiondate, perc_totaleffi) %>% arrange(actualcompletiondate)
 Y<-ts(priority_ps_2$perc_totaleffi, start = c(2001), end = c(2019, 12), frequency = 12)
 plot(Y)
@@ -1656,7 +1580,7 @@ plot(forecast_values.Y, xlab = "Time", ylab = "Total Efficiency (in %age)", main
 ```
 
 **SOS**
-```{r SOS}
+```{r eftsSOS}
 priority_sos_2<-priority %>% filter(craftgroup=="SOS") %>% mutate(year = year(actualcompletiondate))%>%  mutate(perc_totaleffi = totaleffi/round(mean(totaleffi))) %>% select(actualcompletiondate, perc_totaleffi) %>% arrange(actualcompletiondate)
 Y<-ts(priority_sos_2$perc_totaleffi, start = c(2001), end = c(2019, 12), frequency = 12)
 plot(Y)
@@ -1686,7 +1610,7 @@ plot(forecast_values.Y, xlab = "Time", ylab = "Total Efficiency (in %age)", main
 ```
 
 **INSPECTION**
-```{r inspection}
+```{r eftsinspection}
 priority_inspection_2<-priority %>% filter(craftgroup=="INSPECTION") %>% mutate(year = year(actualcompletiondate))%>%  mutate(perc_totaleffi = totaleffi/round(mean(totaleffi))) %>% select(actualcompletiondate, perc_totaleffi) %>% arrange(actualcompletiondate)
 Y<-ts(priority_inspection_2$perc_totaleffi, start = c(2001), end = c(2019, 12), frequency = 12)
 plot(Y)
@@ -1715,7 +1639,7 @@ plot(forecast_values.Y, xlab = "Time", ylab = "Total Efficiency (in %age)", main
 ```
 
 **CONTRACT**
-```{r contract}
+```{r eftscontract}
 priority_contract_2<-priority %>% filter(craftgroup=="CONTRACT") %>% mutate(year = year(actualcompletiondate))%>%  mutate(perc_totaleffi = totaleffi/round(mean(totaleffi))) %>% select(actualcompletiondate, perc_totaleffi) %>% arrange(actualcompletiondate)
 Y<-ts(priority_contract_2$perc_totaleffi, start = c(2001), end = c(2019, 12), frequency = 12)
 plot(Y)
@@ -1744,7 +1668,7 @@ plot(forecast_values.Y, xlab = "Time", ylab = "Total Efficiency (in %age)", main
 ```
 
 **Codes**
-```{r codes}
+```{r eftscodes}
 priority_codes_2<-priority %>% filter(craftgroup=="CODES") %>% mutate(year = year(actualcompletiondate))%>%  mutate(perc_totaleffi = totaleffi/round(mean(totaleffi))) %>% select(actualcompletiondate, perc_totaleffi) %>% arrange(actualcompletiondate)
 Y<-ts(priority_codes_2$perc_totaleffi, start = c(2001), end = c(2019, 12), frequency = 12)
 plot(Y)

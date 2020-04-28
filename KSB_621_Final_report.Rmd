@@ -1,0 +1,1697 @@
+---
+title: "Practicum Final Report"
+author: "Team 2 - Anh (Alice) Do, Tushar Jethani, Akul Malhotra, MaiHuong (Maria) Nguyen, Andy Truong"
+date: "April 27, 2020"
+output: html_document
+---
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r library}
+library(tidyverse)
+library(lubridate)
+library(ggthemes)
+library(data.table)
+library(scales)
+library(forecast)
+library(imputeTS)
+library(TSstudio)
+```
+
+```{r new, cache=T}
+newwo = read_csv("workorder_clean.csv", guess_max = 1500000)
+```
+
+## Data Manipulations
+
+```{r date}
+requested = newwo %>% 
+  mutate(yearrequested = year(daterequested),
+         monthrequested = month(daterequested),
+         dayrequested = day(daterequested)) %>%
+  filter(yearrequested < 2020, yearrequested > 2000) %>%
+  mutate(ymrequested = make_date(yearrequested, monthrequested),
+         ymdrequested = make_date(yearrequested, monthrequested, dayrequested)) %>%
+  mutate(yearcompleted = year(actualcompletiondate),
+         monthcompleted = month(actualcompletiondate),
+         daycompleted = day(actualcompletiondate)) %>%
+  filter(yearcompleted < 2020, yearcompleted > 2000) %>%
+  mutate(ymcompleted = make_date(yearcompleted, monthcompleted),
+         ymdcompleted = make_date(yearcompleted, monthcompleted, daycompleted))
+```
+
+```{r priorityts}
+priority = requested %>% select(craftdescription, craftgroup, daterequested, datecreated, actualcompletiondate, laststatuschange, currentstatus, prioritydescription, ispreventmaint, ymrequested, ymcompleted) %>%
+  filter(currentstatus %in% c("Completed", "Closed")) %>%
+  filter(prioritydescription != "OTHER") %>%
+  filter(!is.na(daterequested), !is.na(datecreated), !is.na(laststatuschange)) %>%
+  mutate(createffi = abs(as.numeric(round((datecreated - daterequested)/3600), digits = 2)),
+         totaleffi = abs(as.numeric(round((actualcompletiondate - datecreated)/3600), digits = 2)))
+priority
+```
+
+## Cost Analysis
+
+### 1. Subsets
+
+```{r cost}
+zerocost = newwo %>% filter(actualcosts == 0, 
+                            currentstatus == "Completed") %>% 
+  select(craftgroup, prioritydescription) %>%
+  group_by(craftgroup) %>%
+  summarize(n = n())
+costdata = requested %>% filter(currentstatus %in% c("Completed", "Closed"),
+                                !is.na(daterequested), 
+                                !is.na(datecreated), 
+                                !is.na(laststatuschange)) %>%
+  filter(prioritydescription != "OTHER") %>%
+  select(actualcosts, craftgroup, daterequested, actualcompletiondate, prioritydescription, ymrequested, ymcompleted) %>% 
+  mutate(totaleffi = abs(as.numeric(round((actualcompletiondate - daterequested)/3600), digits = 2)))
+
+zerocost = costdata %>% filter(actualcosts == 0)
+nonzerocost = costdata %>% filter(actualcosts != 0)
+normalcost = costdata %>% filter(actualcosts < 3500, actualcosts > 0)
+mediumcost = costdata %>% filter(actualcosts >= 3500, actualcosts <= 10000)
+highcost = costdata %>% filter(actualcosts > 10000)
+```
+
+### 2. Regression
+
+```{r costreg}
+regall = lm(actualcosts ~ craftgroup + totaleffi + prioritydescription, data = costdata)
+summary(regall)
+
+regnonzero = lm(actualcosts ~ craftgroup + totaleffi + prioritydescription, data = nonzerocost)
+summary(regnonzero)
+
+regnormal = lm(actualcosts ~ craftgroup + totaleffi + prioritydescription, data = normalcost)
+summary(regnormal)
+
+regmedium = lm(actualcosts ~ craftgroup + totaleffi + prioritydescription, data = mediumcost)
+summary(regmedium)
+
+reghigh = lm(actualcosts ~ craftgroup + totaleffi + prioritydescription, data = highcost)
+summary(reghigh)
+```
+
+### 3. Time Series 
+
+#### Functions
+
+```{r MSEfunc}
+#The following functions are used to identify the time series method that gives the lowest test MSE
+##For Number of Work Orders by Craft Group
+COUNT_TS_MSE = function(craftgroup) {
+  tsdata = nonzerocost %>% filter(craftgroup == !!craftgroup) %>% 
+    group_by(ymrequested) %>% 
+    summarize(count = n()) %>%
+    full_join(wocount, by = "ymrequested") %>%
+    na_replace(fill = 0) %>%
+    select(-wocount) %>%
+    arrange(ymrequested)
+  
+  ts = ts(tsdata$count, 
+          start = c(2001,1), 
+          end = c(2019,6), 
+          frequency = 12)
+  
+  train.periods = 155
+  test.periods = 67
+  cycle=12
+  
+  ts.training <- ts(tsdata$count[1:train.periods], start = c(2001,1), end = c(2019,6), frequency = 12)
+  
+  ts.training.SESmodel <- HoltWinters(ts.training, beta=FALSE)
+  ts.training.HWmodel <- HoltWinters(ts.training)
+  
+  ts.SESmodel <- HoltWinters(ts,
+                                       alpha=ts.training.SESmodel$alpha, 
+                                       beta=FALSE, 
+                                       gamma=ts.training.SESmodel$gamma)
+  ts.HWmodel <- HoltWinters(ts, 
+                                      alpha=ts.training.HWmodel$alpha, 
+                                      beta=ts.training.HWmodel$beta, 
+                                      gamma=ts.training.HWmodel$gamma)
+  
+  data.start <- train.periods + 1
+  data.end <- train.periods + test.periods
+  
+  fit.start <- train.periods 
+  fit.end <- train.periods + test.periods - 1
+  
+  SES.MSE <- sum((ts.SESmodel$fitted[fit.start:fit.end] - ts[data.start:data.end])^2)/(test.periods)
+  
+  fit.start <- train.periods - cycle + 1 
+  fit.end <- train.periods + test.periods - cycle
+  
+  HW.MSE <- sum((ts.HWmodel$fitted[fit.start:fit.end] - ts[fit.start:fit.end])^2)/(test.periods)
+  
+  MSE = data.frame(SES.MSE, DES.MSE, HW.MSE)
+  
+  print(MSE)
+  print(paste("The minimum MSE is", 
+              names(MSE)[which.min(MSE)],
+              "=",
+              round(MSE[which.min(MSE)]))) 
+  
+}
+
+#For Total Cost of Work Orders in each Craft Group
+COST_TS_MSE = function(craftgroup) {
+  tsdata = nonzerocost %>% filter(craftgroup == !!craftgroup) %>% 
+    group_by(ymrequested) %>% 
+    summarize(totalcost = sum(actualcosts))%>%
+    full_join(wocount, by = "ymrequested") %>%
+    na_replace(fill = 0) %>%
+    select(-wocount) %>%
+    arrange(ymrequested)
+  ts = ts(tsdata$totalcost, 
+          start = c(2001,1), 
+          end = c(2019,6), 
+          frequency = 12)
+}
+  
+  train.periods = 155
+  test.periods = 67
+  cycle=12
+  
+  ts.training <- ts(tsdata$totalcost[1:train.periods], start = c(2001,1), end = c(2019,6), frequency = 12)
+  
+  ts.training.SESmodel <- HoltWinters(ts.training, beta=FALSE)
+  ts.training.HWmodel <- HoltWinters(ts.training)
+  
+  ts.SESmodel <- HoltWinters(ts,
+                             alpha=ts.training.SESmodel$alpha, 
+                             beta=FALSE, 
+                             gamma=ts.training.SESmodel$gamma)
+  ts.HWmodel <- HoltWinters(ts, 
+                            alpha=ts.training.HWmodel$alpha, 
+                            beta=ts.training.HWmodel$beta, 
+                            gamma=ts.training.HWmodel$gamma)
+  
+  data.start <- train.periods + 1
+  data.end <- train.periods + test.periods
+  
+  fit.start <- train.periods 
+  fit.end <- train.periods + test.periods - 1
+  
+  SES.MSE <- sum((ts.SESmodel$fitted[fit.start:fit.end] - ts[data.start:data.end])^2)/(test.periods)
+  
+  fit.start <- train.periods - cycle + 1 
+  fit.end <- train.periods + test.periods - cycle
+  
+  HW.MSE <- sum((ts.HWmodel$fitted[fit.start:fit.end] - ts[fit.start:fit.end])^2)/(test.periods)
+  
+  MSE = data.frame(SES.MSE, DES.MSE, HW.MSE)
+  
+  print(MSE)
+  print(paste("The minimum MSE is", 
+              names(MSE)[which.min(MSE)],
+              "=",
+              round(MSE[which.min(MSE)]))) 
+              
+AVG_TS = function(craftgroup) {
+  tsdata = normalcost %>% filter(craftgroup == !!craftgroup) %>% 
+    group_by(ymrequested) %>% 
+    summarize(averagecost = mean(actualcosts))%>%
+    full_join(wocount, by = "ymrequested") %>%
+    na_replace(fill = 0) %>%
+    select(-wocount) %>%
+    arrange(ymrequested)
+  ts = ts(tsdata$averagecost, 
+          start = c(2001,1), 
+          end = c(2019,6), 
+          frequency = 12)
+  plot(ts, ylab = "Average Cost", main = paste("AVERAGE COST OF", craftgroup))
+}
+```
+
+```{r predSES}
+SES.prediction = function(craftgroup) {
+  tsdata = nonzerocost %>% filter(craftgroup == !!craftgroup) %>% 
+    group_by(ymrequested) %>% 
+    summarize(count = n()) %>%
+    full_join(wocount, by = "ymrequested") %>%
+    na_replace(fill = 0) %>%
+    select(-wocount) %>%
+    arrange(ymrequested)
+  
+  ts = ts(tsdata$count, 
+          start = c(2001,1), 
+          end = c(2019,6), 
+          frequency = 12)
+  
+  
+  train.periods = 155
+  test.periods = 67
+  cycle=12
+  
+  ts.training <- ts(tsdata$count[1:train.periods], start = c(2001,1), end = c(2019,6), frequency = 12)
+  
+  ts.training.SESmodel <- HoltWinters(ts.training, beta=FALSE)
+  
+  ts.SESmodel <- HoltWinters(ts,
+                             alpha=ts.training.SESmodel$alpha, 
+                             beta=FALSE, 
+                             gamma=ts.training.SESmodel$gamma)
+  
+  forec = forecast(ts.SESmodel, 18)
+  SES.plot = plot(ts.SESmodel)
+  forecast.plot = plot(forec, main = "Single Exponential Smoothing Forecast for 2019-2020")
+  list(SES.plot, forec, forecast.plot)
+}
+```
+
+```{r predHW}
+HW.prediction = function(craftgroup) {
+  tsdata = nonzerocost %>% filter(craftgroup == !!craftgroup) %>% 
+    group_by(ymrequested) %>% 
+    summarize(count = n()) %>%
+    full_join(wocount, by = "ymrequested") %>%
+    na_replace(fill = 0) %>%
+    select(-wocount) %>%
+    arrange(ymrequested)
+  
+  ts = ts(tsdata$count, 
+          start = c(2001,1), 
+          end = c(2019,6), 
+          frequency = 12)
+  
+  
+  train.periods = 155
+  test.periods = 67
+  cycle=12
+  
+  ts.training <- ts(tsdata$count[1:train.periods], start = c(2001,1), end = c(2019,6), frequency = 12)
+  
+  ts.training.HWmodel <- HoltWinters(ts.training)
+  
+  ts.HWmodel <- HoltWinters(ts,
+                             alpha=ts.training.HWmodel$alpha, 
+                             beta=ts.training.HWmodel$beta, 
+                             gamma=ts.training.HWmodel$gamma)
+  
+  forec = forecast(ts.HWmodel, 18)
+  HW.plot = plot(ts.HWmodel)
+  forecast.plot = plot(forec, main = "Holtwinter Seasonality Forecast for 2019-2020")
+  list(HW.plot, forec, forecast.plot)
+  
+}
+```
+
+#### 3.1. Time series by requested date to predict number of orders requested
+
+**3.1.1 All Orders for All Crafts**
+```{r wocount}
+wocount = nonzerocost  %>% group_by(ymrequested) %>% summarize(wocount = n())
+```
+
+```{r wocountts}
+wocountts = ts(wocount$wocount, start = c(2001,1), end = c(2019,8), frequency = 12)
+plot(wocountts)
+```
+
+```{r wocountts_testMSE_allcrafts}
+train.periods <- 155
+test.periods <- length(wocountts) - train.periods
+cycle <- 12
+wocountts.training <- ts(wocount$wocount[1:train.periods], start = c(2001,1), end = c(2019,8), frequency = 12)
+wocountts.training.SESmodel <- HoltWinters(wocountts.training, beta=FALSE)
+wocountts.training.HWmodel <- HoltWinters(wocountts.training)
+wocountts.SESmodel <- HoltWinters(wocountts,
+                          alpha=wocountts.training.SESmodel$alpha, 
+                          beta=FALSE, 
+                          gamma=wocountts.training.SESmodel$gamma)
+wocountts.HWmodel <- HoltWinters(wocountts, 
+                         alpha=wocountts.training.HWmodel$alpha, 
+                         beta=wocountts.training.HWmodel$beta, 
+                         gamma=wocountts.training.HWmodel$gamma)
+data.start <- train.periods + 1
+data.end <- train.periods + test.periods
+fit.start <- train.periods 
+fit.end <- train.periods + test.periods - 1
+SES.MSE <- sum((wocountts.SESmodel$fitted[fit.start:fit.end] - wocountts[data.start:data.end])^2)/(test.periods)
+fit.start <- train.periods - cycle + 1 
+fit.end <- train.periods + test.periods - cycle
+HW.MSE <- sum((wocountts.HWmodel$fitted[fit.start:fit.end] - wocountts[fit.start:fit.end])^2)/(test.periods)
+cat(paste("SES MSE =", SES.MSE, "\nDES MSE =", DES.MSE, "\nHW MSE =", HW.MSE))
+```
+
+```{r wocountts_predict_allcrafts}
+plot(wocountts.HWmodel)
+wocount_2020_HW = forecast(wocountts.HWmodel, 15)
+plot(wocount_2020_HW, main = "Holtwinters Forecast for 2019-2020")
+```
+
+```{r avgcost_allcraft}
+allavgcost = normalcost %>%  
+    group_by(ymrequested) %>% 
+    summarize(averagecost = mean(actualcosts))%>%
+    full_join(wocount, by = "ymrequested") %>%
+    na_replace(fill = 0) %>%
+    select(-wocount) %>%
+    arrange(ymrequested)
+  ts = ts(allavgcost$averagecost, 
+          start = c(2001,1), 
+          end = c(2019,6), 
+          frequency = 12)
+  plot(ts, ylab = "Average Cost", main = "Average Cost of All Crafts")
+```
+
+**3.1.2 Plumbing** 
+```{r wocountts_predict_plumb}
+COUNT_COUNT_TS_MSE("PLUMBING/RESTROOM")
+HW.prediction("PLUMBING/RESTROOM")
+AVG_TS("PLUMBING/RESTROOM")
+```
+
+**3.1.3 Furniture** 
+```{r wocountts_predict_furniture}
+COUNT_TS_MSE("FURNITURES/UTILITIES/APPLIANCES")
+HW.prediction("FURNITURES/UTILITIES/APPLIANCES")
+AVG_TS("FURNITURES/UTILITIES/APPLIANCES")
+```
+
+**3.1.3 Security**
+```{r wocountts_predict_security}
+COUNT_TS_MSE("HEALTH/SAFETY/SECURITY")
+HW.prediction("HEALTH/SAFETY/SECURITY")
+AVG_TS("HEALTH/SAFETY/SECURITY")
+```
+
+**3.1.4 Electricity/Energy**
+```{r wocountts_predict_energy}
+COUNT_TS_MSE("ELECTRICITY/ENERGY")
+HW.prediction("ELECTRICITY/ENERGY")
+AVG_TS("ELECTRICITY/ENERGY")
+```
+
+**3.1.5 Outdoors**
+```{r wocountts_predict_outdoor}
+COUNT_TS_MSE("OUTDOORS")
+HW.prediction("OUTDOORS")
+AVG_TS("OUTDOORS")
+```
+
+**3.1.6 Vehicle/Transportation/Delivery** 
+```{r wocountts_predict_transport}
+COUNT_TS_MSE("VEHICLE/TRANSPORTATION/DELIVERY")
+HW.prediction("VEHICLE/TRANSPORTATION/DELIVERY")
+AVG_TS("VEHICLE/TRANSPORTATION/DELIVERY")
+```
+
+**3.1.7 Cleaning/Sanitization** 
+```{r wocountts_predict_clean}
+COUNT_TS_MSE("CLEANING/SANITIZATION")
+HW.prediction("CLEANING/SANITIZATION")
+AVG_TS("CLEANING/SANITIZATION")
+```
+
+**3.1.8 Construction/Building** 
+```{r wocountts_predict_construct}
+COUNT_TS_MSE("CONSTRUCTION/BUILDING")
+HW.prediction("CONSTRUCTION/BUILDING")
+AVG_TS("CONSTRUCTION/BUILDING")
+```
+
+**3.1.9 Event/Recreation/Food and Beverages**
+```{r wocountts_predict_event}
+COUNT_TS_MSE("EVENT/RECREATION/F&B")
+HW.prediction("EVENT/RECREATION/F&B")
+AVG_TS("EVENT/RECREATION/F&B")
+```
+
+**3.1.10 Plant and Materials**
+```{r wocountts_predict_plant}
+COUNT_TS_MSE("PLANT/MATERIALS")
+HW.prediction("PLANT/MATERIALS")
+AVG_TS("PLANT/MATERIALS")
+```
+
+**3.1.11 Personnel and Training**
+```{r wocountts_predict_personnel}
+COUNT_TS_MSE("ADMIN/PERSONNEL/TRAINING")
+HW.prediction("ADMIN/PERSONNEL/TRAINING")
+AVG_TS("ADMIN/PERSONNEL/TRAINING")
+```
+
+**3.1.12 Preventive/Scheduled** 
+```{r wocountts_predict_PM}
+COUNT_TS_MSE("PREVENTIVE/SCHEDULED")
+HW.prediction("PREVENTIVE/SCHEDULED")
+AVG_TS("PREVENTIVE/SCHEDULED")
+```
+
+**3.1.13 Inspection** 
+```{r wocountts_predict_inspect}
+COUNT_TS_MSE("INSPECTION")
+HW.prediction("INSPECTION")
+AVG_TS("INSPECTION")
+```
+
+**3.1.14 IT/Network** 
+```{r wocountts_predict_IT}
+COUNT_TS_MSE("IT/NETWORK")
+HW.prediction("IT/NETWORK")
+AVG_TS("IT/NETWORK")
+```
+
+**3.1.15 Contract**
+```{r wocountts_predict_contract}
+COUNT_TS_MSE("CONTRACT")
+HW.prediction("CONTRACT")
+AVG_TS("CONTRACT")
+```
+**3.1.16 SOS**
+```{r wocountts_predict_SOS}
+COUNT_TS_MSE("SOS")
+HW.prediction("SOS")
+AVG_TS("SOS")
+```
+
+####3.2. Time Series by requested date to predict total costs
+
+```{r setupts}
+costts = nonzerocost %>% 
+  group_by(ymrequested) %>% 
+  summarize(totalcost = sum(actualcosts))
+normalcostts = normalcost %>% select(actualcosts, ymrequested)
+mediumcostts = mediumcost %>% select(actualcosts, ymrequested)
+highcostts = highcost %>% select(actualcosts, ymrequested)
+```
+
+```{r costts}
+totalts = ts(costts$totalcost, start = c(2001,1), end = c(2019,8), frequency = 12)
+plot(totalts)
+```
+
+```{r costfunctions}
+COST_TS_MSE = function(craftgroup) {
+  tsdata = nonzerocost %>% filter(craftgroup == !!craftgroup) %>% 
+    group_by(ymrequested) %>% 
+    summarize(totalcost = sum(actualcosts))%>%
+    full_join(wocount, by = "ymrequested") %>%
+    na_replace(fill = 0) %>%
+    select(-wocount) %>%
+    arrange(ymrequested)
+  ts = ts(tsdata$totalcost, 
+          start = c(2001,1), 
+          end = c(2019,6), 
+          frequency = 12)
+  
+  
+  train.periods = 155
+  test.periods = 67
+  cycle = 12
+  
+  ts.training <- ts(tsdata$totalcost[1:train.periods], start = c(2001,1), end = c(2019,6), frequency = 12)
+  
+  ts.training.SESmodel <- HoltWinters(ts.training, beta=FALSE)
+  ts.training.HWmodel <- HoltWinters(ts.training)
+  
+  ts.SESmodel <- HoltWinters(ts,
+                             alpha=ts.training.SESmodel$alpha, 
+                             beta=FALSE, 
+                             gamma=ts.training.SESmodel$gamma)
+  ts.HWmodel <- HoltWinters(ts, 
+                            alpha=ts.training.HWmodel$alpha, 
+                            beta=ts.training.HWmodel$beta, 
+                            gamma=ts.training.HWmodel$gamma)
+  
+  data.start <- train.periods + 1
+  data.end <- train.periods + test.periods
+  
+  fit.start <- train.periods 
+  fit.end <- train.periods + test.periods - 1
+  
+  SES.MSE <- sum((ts.SESmodel$fitted[fit.start:fit.end] - ts[data.start:data.end])^2)/(test.periods)
+  
+  fit.start <- train.periods - cycle + 1 
+  fit.end <- train.periods + test.periods - cycle
+  
+  HW.MSE <- sum((ts.HWmodel$fitted[fit.start:fit.end] - ts[fit.start:fit.end])^2)/(test.periods)
+  
+  MSE = data.frame(SES.MSE, DES.MSE, HW.MSE)
+  
+  print(MSE)
+  print(paste("The minimum MSE is", 
+              names(MSE)[which.min(MSE)],
+              "=",
+              round(MSE[which.min(MSE)]))) 
+  
+}
+```
+
+### SES function for cost
+```{r costSES} 
+SES.prediction.cost = function(craftgroup) {
+  tsdata = nonzerocost %>% filter(craftgroup == !!craftgroup) %>% 
+    group_by(ymrequested) %>% 
+    summarize(totalcost = sum(actualcosts)) %>%
+    full_join(wocount, by = "ymrequested") %>%
+    na_replace(fill = 0) %>%
+    select(-wocount) %>%
+    arrange(ymrequested)
+  
+  ts = ts(tsdata$totalcost, 
+          start = c(2001,1), 
+          end = c(2019,6), 
+          frequency = 12)
+  
+  
+  train.periods = 155
+  test.periods = 67
+  cycle = 12
+  
+  ts.training <- ts(tsdata$totalcost[1:train.periods], start = c(2001,1), end = c(2019,6), frequency = 12)
+  
+  ts.training.SESmodel <- HoltWinters(ts.training, beta=FALSE, gamma=TRUE)
+  
+  ts.SESmodel <- HoltWinters(ts,
+                             alpha=ts.training.SESmodel$alpha, 
+                             beta=FALSE, 
+                             gamma=ts.training.SESmodel$gamma)
+  
+  forec = forecast(ts.SESmodel, 18)
+  SES.plot = plot(ts.SESmodel)
+  forecast.plot = plot(forec, main = "Single Exponential Smoothing Cost Forecast for 2019-2020")
+  list(SES.plot, forec, forecast.plot)
+  
+}
+```
+
+### HW function for cost
+```{r costHW}
+HW.prediction.cost = function(craftgroup) {
+  tsdata = nonzerocost %>% filter(craftgroup == !!craftgroup) %>% 
+    group_by(ymrequested) %>% 
+    summarize(totalcost = sum(actualcosts)) %>%
+    full_join(wocount, by = "ymrequested") %>%
+    na_replace(fill = 0) %>%
+    select(-wocount) %>%
+    arrange(ymrequested)
+  
+  ts = ts(tsdata$totalcost, 
+          start = c(2001,1), 
+          end = c(2019,6), 
+          frequency = 12)
+  
+  
+  train.periods = 155
+  test.periods = 67
+  cycle=12
+  
+  ts.training <- ts(tsdata$totalcost[1:train.periods], start = c(2001,1), end = c(2019,6), frequency = 12)
+  
+  ts.training.HWmodel <- HoltWinters(ts.training)
+  
+  ts.HWmodel <- HoltWinters(ts,
+                            alpha=ts.training.HWmodel$alpha, 
+                            beta=ts.training.HWmodel$beta, 
+                            gamma=ts.training.HWmodel$gamma)
+  
+  forec = forecast(ts.HWmodel, 18)
+  HW.plot = plot(ts.HWmodel)
+  forecast.plot = plot(forec, main = "Holtwinter Seasonality Cost Forecast for 2019-2020")
+  list(HW.plot, forec, forecast.plot)
+  
+}
+```
+
+**Total Cost for all crafts**
+```{r totalcost}
+totalcost = normalcost  %>% group_by(ymrequested) %>% summarize(wocount = sum(actualcost))
+```
+
+```{r totalcostts}
+totalcostts = ts(wocount$wocount, start = c(2001,1), end = c(2019,8), frequency = 12)
+plot(wocountts)
+```
+
+```{r totalcostts_testMSE_allcrafts}
+train.periods <- 155
+test.periods <- length(totalcostts) - train.periods
+cycle <- 12
+totalcostts.training <- ts(totalcost$totalcost[1:train.periods], start = c(2001,1), end = c(2019,8), frequency = 12)
+totalcostts.training.SESmodel <- HoltWinters(totalcostts.training, beta=FALSE)
+totalcostts.training.HWmodel <- HoltWinters(totalcostts.training)
+totalcostts.SESmodel <- HoltWinters(totalcostts,
+                          alpha=toalcostts.training.SESmodel$alpha, 
+                          beta=FALSE, 
+                          gamma=totalcostts.training.SESmodel$gamma)
+totalcostts.HWmodel <- HoltWinters(totalcostts, 
+                         alpha=totalcostts.training.HWmodel$alpha, 
+                         beta=totalcostts.training.HWmodel$beta, 
+                         gamma=totalcostts.training.HWmodel$gamma)
+data.start <- train.periods + 1
+data.end <- train.periods + test.periods
+fit.start <- train.periods 
+fit.end <- train.periods + test.periods - 1
+SES.MSE <- sum((totalcostts.SESmodel$fitted[fit.start:fit.end] - totalcostts[data.start:data.end])^2)/(test.periods)
+fit.start <- train.periods - cycle + 1 
+fit.end <- train.periods + test.periods - cycle
+HW.MSE <- sum((totalcostts.HWmodel$fitted[fit.start:fit.end] - tolalcostts[fit.start:fit.end])^2)/(test.periods)
+cat(paste("SES MSE =", SES.MSE, "\nDES MSE =", DES.MSE, "\nHW MSE =", HW.MSE))
+```
+
+```{r totalcost_allcrafts}
+plot(totalcostts.HWmodel)
+totalcost_2020_HW = forecast(totalcostts.HWmodel, 15)
+plot(totalcost_2020_HW, main = "Holtwinters Forecast for 2019-2020")
+```
+
+**3.2.1 Plumbing** 
+```{r totalcost_plumbing}
+COST_TS_MSE("PLUMBING/RESTROOM")
+HW.prediction.cost("PLUMBING/RESTROOM")
+```
+
+**3.2.2 Furniture**
+```{r totalcost_furniture}
+COST_TS_MSE("FURNITURES/UTILITIES/APPLIANCES")
+HW.prediction.cost("FURNITURES/UTILITIES/APPLIANCES")
+```
+
+**3.2.3 Security**
+```{r totalcost_security}
+COST_TS_MSE("HEALTH/SAFETY/SECURITY")
+HW.prediction.cost("HEALTH/SAFETY/SECURITY")
+```
+
+**3.2.4 Electricity**
+```{r totalcost_electricty}
+COST_TS_MSE("ELECTRICITY/ENERGY")
+HW.prediction.cost("ELECTRICITY/ENERGY")
+```
+
+**3.2.5 Outdoors**
+```{r totalcost_outdoor}
+COST_TS_MSE("OUTDOORS")
+HW.prediction.cost("OUTDOORS")
+```
+
+**3.2.6 Transport**
+```{r totalcost_transport}
+COST_TS_MSE("VEHICLE/TRANSPORTATION/DELIVERY")
+HW.prediction.cost("VEHICLE/TRANSPORTATION/DELIVERY")
+```
+
+**3.2.7 Cleaning**
+```{r totalcost_cleaning}
+COST_TS_MSE("CLEANING/SANITIZATION")
+HW.prediction.cost("CLEANING/SANITIZATION")
+```
+
+**3.2.8 Construction**
+```{r totalcost_construction}
+COST_TS_MSE("CONSTRUCTION/BUILDING")
+HW.prediction.cost("CONSTRUCTION/BUILDING")
+```
+
+**3.2.9 Events**
+```{r totalcost_event}
+COST_TS_MSE("EVENT/RECREATION/F&B")
+HW.prediction.cost("EVENT/RECREATION/F&B")
+```
+
+**3.2.10 Plant**
+```{r totalcost_plant}
+COST_TS_MSE("PLANT/MATERIALS")
+HW.prediction.cost("PLANT/MATERIALS")
+```
+
+**3.2.11 Personnel**
+```{r totalcost_personnel}
+COST_TS_MSE("ADMIN/PERSONNEL/TRAINING")
+HW.prediction.cost("ADMIN/PERSONNEL/TRAINING")
+```
+
+**3.2.12 Preventive**
+```{r totalcost_PM}
+COST_TS_MSE("PREVENTIVE/SCHEDULED")
+HW.prediction.cost("PREVENTIVE/SCHEDULED")
+```
+
+**3.2.13 Inspection**
+```{r totalcost_inspect}
+COST_TS_MSE("INSPECTION")
+HW.prediction.cost("INSPECTION")
+```
+
+**3.2.14 IT/Network**
+```{r totalcost_IT}
+COST_TS_MSE("IT/NETWORK")
+HW.prediction.cost("IT/NETWORK")
+```
+
+**3.2.15 Contract**
+```{r totalcost_contract}
+COST_TS_MSE("CONTRACT")
+HW.prediction.cost("CONTRACT")
+```
+
+**3.2.16 SOS**
+```{r totalcost_SOS}
+COST_TS_MSE("SOS")
+HW.prediction.cost("SOS")
+```
+
+
+### 4. Priority Time Series
+
+**Emergency**
+```{r emergency cost}
+emergencycost = normalcost %>% filter(prioritydescription=="EMERGENCY") %>% 
+                           group_by(ymrequested) %>%
+                           summarize(totalcost=sum(actualcosts))%>%
+                           select(totalcost, ymrequested) %>% 
+                           arrange(ymrequested)
+e.cost = ts(emergencycost$totalcost, start = c(2001,1), end = c(2019,6), frequency = 12)
+plot(e.cost, main = "Total Cost of Emergency Work Orders")
+```
+
+```{r predict emergency cost}
+train.emergency = 155
+test.emergency = 67
+e.cycle = 12
+e.cost.training = ts(emergencycost$totalcost[1:train.emergency], start = c(2001,1), end = c(2019,6), freq=e.cycle) 
+e.cost.training.SESmodel = HoltWinters(e.cost.training, beta=FALSE)
+e.cost.training.HWmodel = HoltWinters(e.cost.training)
+e.cost.SESmodel = HoltWinters(e.cost, alpha=e.cost.training.SESmodel$alpha, beta=FALSE, gamma=e.cost.training.SESmodel$gamma)
+e.cost.HWmodel = HoltWinters(e.cost, alpha=e.cost.training.HWmodel$alpha, beta=e.cost.training.HWmodel$beta, gamma=e.cost.training.HWmodel$gamma)
+e.cost.data.start = train.emergency + 1
+e.cost.data.end = train.emergency + test.emergency
+e.cost.fit.start = train.emergency
+e.cost.fit.end = train.emergency + test.emergency - 1
+e.cost.SES.MSE = sum((e.cost.SESmodel$fitted[e.cost.fit.start:e.cost.fit.end] - e.cost[e.cost.data.start:e.cost.data.end])^2) / (test.emergency)
+e.cost.fit.start = train.emergency - e.cycle + 1
+e.cost.fit.end = train.emergency + test.emergency - e.cycle
+e.cost.HW.MSE = sum((e.cost.HWmodel$fitted[e.cost.fit.start:e.cost.fit.end] - e.cost[e.cost.data.start:e.cost.data.end])^2) / (test.emergency)
+cat(paste("SES MSE =",e.cost.SES.MSE,"\nHW MSE =",e.cost.HW.MSE))
+e.cost.HW.forecast = forecast(e.cost.HWmodel,18)
+e.cost.HW.forecast.plot = plot(e.cost.HW.forecast, main = "HW Forecast of Cost of Emergency WO 2020-2021")
+view(data.frame(e.cost.HW.forecast))
+```
+
+**High**
+```{r cost high}
+highcost = normalcost %>% filter(prioritydescription=="HIGH") %>% 
+                           group_by(ymrequested) %>%
+                           summarize(totalcost=sum(actualcosts))%>%
+                           select(totalcost, ymrequested) %>% 
+                           arrange(ymrequested)
+h.cost = ts(highcost$totalcost, start = c(2001,6), end = c(2019,6), frequency = 12)
+plot(h.cost, main = "Cost of High Work Orders")
+```
+
+```{r predict high cost}
+train.high = 152
+test.high = 65
+h.cycle = 12
+h.cost.training = ts(highcost$totalcost[1:train.high], start = c(2001,6), end = c(2019,6), freq=h.cycle) 
+h.cost.training.SESmodel = HoltWinters(h.cost.training, beta=FALSE)
+h.cost.training.HWmodel = HoltWinters(h.cost.training)
+h.cost.SESmodel = HoltWinters(h.cost, alpha=h.cost.training.SESmodel$alpha, beta=FALSE, gamma=h.cost.training.SESmodel$gamma)
+h.cost.HWmodel = HoltWinters(h.cost, alpha=h.cost.training.HWmodel$alpha, beta=h.cost.training.HWmodel$beta, gamma=h.cost.training.HWmodel$gamma)
+h.cost.data.start = train.high + 1
+h.cost.data.end = train.high + test.high
+h.cost.fit.start = train.high
+h.cost.fit.end = train.high + test.high - 1
+h.cost.SES.MSE = sum((h.cost.SESmodel$fitted[h.cost.fit.start:h.cost.fit.end] - h.cost[h.cost.data.start:h.cost.data.end])^2) / (test.high)
+h.cost.fit.start = train.high - h.cycle + 1
+h.cost.fit.end = train.high + test.high - h.cycle
+h.cost.HW.MSE = sum((h.cost.HWmodel$fitted[h.cost.fit.start:h.cost.fit.end] - h.cost[h.cost.data.start:h.cost.data.end])^2) / (test.high)
+cat(paste("SES MSE =",h.cost.SES.MSE,"\nHW MSE =",h.cost.HW.MSE))
+h.cost.HW.forecast = forecast(h.cost.HWmodel,18)
+h.cost.HW.forecast.plot = plot(h.cost.HW.forecast, main = "HW Forecast of Cost of High WO 2020-2021")
+view(summary(h.cost.HW.forecast))
+```
+
+**Medium**
+```{r medium cost}
+mediumcost = normalcost %>% filter(prioritydescription=="MEDIUM") %>%
+                           group_by(ymrequested) %>%
+                           summarize(totalcost=sum(actualcosts))%>%
+                           select(totalcost, ymrequested) %>% 
+                           arrange(ymrequested)
+m.cost = ts(mediumcost$totalcost, start = c(2001,1), end = c(2019,6), frequency = 12)
+plot(m.cost, main = "Cost of Medium Work Orders")
+```
+
+```{r predict medium cost}
+train.medium = 155
+test.medium = 67
+m.cycle = 12
+m.cost.training = ts(mediumcost$totalcost[1:train.medium], start = c(2001,1), end = c(2019,6), freq=m.cycle) 
+m.cost.training.SESmodel = HoltWinters(m.cost.training, beta=FALSE)
+m.cost.training.HWmodel = HoltWinters(m.cost.training)
+m.cost.SESmodel = HoltWinters(m.cost, alpha=m.cost.training.SESmodel$alpha, beta=FALSE, gamma=m.cost.training.SESmodel$gamma)
+m.cost.HWmodel = HoltWinters(m.cost, alpha=m.cost.training.HWmodel$alpha, beta=m.cost.training.HWmodel$beta, gamma=m.cost.training.HWmodel$gamma)
+m.cost.data.start = train.medium + 1
+m.cost.data.end = train.medium + test.medium
+m.cost.fit.start = train.medium
+m.cost.fit.end = train.medium + test.medium - 1
+m.cost.SES.MSE = sum((m.cost.SESmodel$fitted[m.cost.fit.start:m.cost.fit.end] - m.cost[m.cost.data.start:m.cost.data.end])^2) / (test.medium)
+m.cost.fit.start = train.medium - m.cycle + 1
+m.cost.fit.end = train.medium + test.medium - m.cycle
+m.cost.HW.MSE = sum((m.cost.HWmodel$fitted[m.cost.fit.start:m.cost.fit.end] - m.cost[m.cost.data.start:m.cost.data.end])^2) / (test.medium)
+cat(paste("SES MSE =",m.cost.SES.MSE,"\nHW MSE =",m.cost.HW.MSE))
+m.cost.HW.forecast = forecast(m.cost.HWmodel,36)
+m.cost.HW.forecast.plot = plot(m.cost.HW.forecast, main = "HW Forecast of Cost of Medium WO 2020-2021")
+view(summary(m.cost.HW.forecast))
+```
+
+**Low**
+```{r low cost}
+lowcost = normalcost %>% filter(prioritydescription=="LOW") %>% 
+                           group_by(ymrequested) %>%
+                           summarize(totalcost=sum(actualcosts))%>%
+                           select(totalcost, ymrequested) %>% 
+                           arrange(ymrequested)
+l.cost = ts(lowcost$totalcost, start = c(2001,1), end = c(2019,6), frequency = 12)
+plot(l.cost, main = "Cost of Low Work Orders")
+```
+
+```{r predict low cost}
+train.low = 157
+test.low = 65
+l.cycle = 12
+l.cost.training = ts(lowcost$totalcost[1:train.low], start = c(2001,1), end = c(2019,6), freq=l.cycle) 
+l.cost.training.SESmodel = HoltWinters(l.cost.training, beta=FALSE)
+l.cost.training.HWmodel = HoltWinters(l.cost.training)
+l.cost.SESmodel = HoltWinters(l.cost, alpha=l.cost.training.SESmodel$alpha, beta=FALSE, gamma=l.cost.training.SESmodel$gamma)
+l.cost.HWmodel = HoltWinters(l.cost, alpha=l.cost.training.HWmodel$alpha, beta=l.cost.training.HWmodel$beta, gamma=l.cost.training.HWmodel$gamma)
+l.cost.data.start = train.low + 1
+l.cost.data.end = train.low + test.low
+l.cost.fit.start = train.low
+l.cost.fit.end = train.low + test.low - 1
+l.cost.SES.MSE = sum((l.cost.SESmodel$fitted[l.cost.fit.start:l.cost.fit.end] - l.cost[l.cost.data.start:l.cost.data.end])^2) / (test.low)
+l.cost.fit.start = train.low - l.cycle + 1
+l.cost.fit.end = train.low + test.low - l.cycle
+l.cost.HW.MSE = sum((l.cost.HWmodel$fitted[l.cost.fit.start:l.cost.fit.end] - l.cost[l.cost.data.start:l.cost.data.end])^2) / (test.low)
+cat(paste("SES MSE =",l.cost.SES.MSE,"\nHW MSE =",l.cost.HW.MSE))
+l.cost.HW.forecast = forecast(l.cost.HWmodel,18)
+l.cost.HW.forecast.plot = plot(l.cost.HW.forecast, main = "HW Forecast of Cost of Low WO 2020-2021")
+view(summary(l.cost.HW.forecast))
+```
+
+### 5. Efficiency Time Series
+
+####5.1 GLM-loess time series to predict future individual work orders with corresponding request-created and requested-completed efficiencies
+
+```{r glmsetup}
+#check how many craft groups there are
+#build a model for one craft group, copy & paste for others
+#unique(priority$craftgroup)
+
+avg_cr_ef <- mean(priority$createffi)
+avg_tot_ef <- mean(priority$totaleffi)
+
+#create efficiency as a percentage of the avg create efficiency
+priority %>%
+  mutate(cr_ef_percent = ((createffi/(avg_cr_ef))*100))-> priority_1
+priority_1 %>%
+  mutate(tot_ef_percent = ((totaleffi/(avg_tot_ef))*100))-> priority_2
+  
+#building the model to be applied to all other craft groups
+#priority_2 %>%
+  #filter(craftgroup == "PLUMBING/RESTROOM") -> plumbing_rest_prio
+#priority_2 %>%
+  #filter(craftgroup == "FURNITURES/UTILITIES/APPLIANCES") -> plumbing_rest_prio
+#priority_2 %>%
+  #filter(craftgroup == "OUTDOORS") -> plumbing_rest_prio
+#priority_2 %>%
+  #filter(craftgroup == "EVENT/RECREATION/F&B") -> plumbing_rest_prio
+#priority_2 %>%
+  #filter(craftgroup == "CONSTRUCTION/BUILDING") -> plumbing_rest_prio
+#priority_2 %>%
+  #filter(craftgroup == "IT/NETWORK") -> plumbing_rest_prio
+#priority_2 %>%
+  #filter(craftgroup == "PLANT/MATERIALS") -> plumbing_rest_prio
+#priority_2 %>%
+  #filter(craftgroup == "PREVENTIVE/SCHEDULED") -> plumbing_rest_prio
+#priority_2 %>%
+ #filter(craftgroup == "INSPECTION") -> plumbing_rest_prio
+#priority_2 %>%
+  #filter(craftgroup == "CODES") -> plumbing_rest_prio
+#doesn't work
+#priority_2 %>%
+  #filter(craftgroup == "OTHER") -> plumbing_rest_prio
+#priority_2 %>%
+  #filter(craftgroup == "ELECTRICITY/ENERGY") -> plumbing_rest_prio
+#priority_2 %>%
+  #filter(craftgroup == "HEALTH/SAFETY/SECURITY") -> plumbing_rest_prio
+#priority_2 %>%
+  #filter(craftgroup == "CLEANING/SANITIZATION") -> plumbing_rest_prio
+#priority_2 %>%
+  #filter(craftgroup == "UNCLEAR/TBD") -> plumbing_rest_prio
+#priority_2 %>%
+  #filter(craftgroup == "VEHICLE/TRANSPORTATION/DELIVERY") -> plumbing_rest_prio
+#priority_2 %>%
+ # filter(craftgroup == "ADMIN/PERSONNEL/TRAINING") -> plumbing_rest_prio
+#priority_2 %>%
+  #filter(craftgroup == "SOS") -> plumbing_rest_prio
+#priority_2 %>%
+  #filter(craftgroup == "CONTRACT") -> plumbing_rest_prio
+```
+
+```{r glmplumb1}
+plum_rest <- plumbing_rest_prio %>%
+    select(datecreated, tot_ef_percent) %>%
+    rename(date  = datecreated,
+           value = tot_ef_percent)
+```
+
+```{r glmplumbviz}
+plum_rest %>%
+    ggplot(aes(x = date, y = value)) +
+    geom_rect(xmin = ymd("2016-01-01"),
+              xmax = ymd("2019-12-31"),
+              ymin = 0, ymax = max(plum_rest$value),
+              fill = palette_light()[[4]], alpha = 0.01) +
+    geom_point(alpha = 0.5, color = palette_light()[[1]]) +
+    labs(title = "create efficiency", x = "", y = "%") +
+    theme_tq()
+```
+
+```{r glmvalidset}
+#split into train and test sets
+plum_rest %>% 
+  filter(date < ymd("2016-01-01")) -> train_tbl
+plum_rest %>% 
+  filter(date >= ymd("2016-01-01")) -> test_tbl
+#adding time series signature
+recipe(value ~ ., data = train_tbl) %>%
+    step_timeseries_signature(date) -> recipe_spec_timeseries
+bake(prep(recipe_spec_timeseries), new_data = train_tbl)
+recipe_spec_timeseries %>%
+    step_rm(date) %>%
+    step_rm(contains("iso"), contains("minute"), contains("hour"),
+            contains("am.pm"), contains("xts")) %>%
+    step_normalize(contains("index.num"), date_year) %>%
+    step_dummy(contains("lbl"), one_hot = TRUE) %>%
+    step_ns(date_index.num, deg_free = 3) -> recipe_spec_final
+bake(prep(recipe_spec_final), new_data = train_tbl)
+linear_reg(mode = "regression", penalty = 0.001, mixture = 0.5) %>%
+    set_engine("glmnet") -> model_spec_glmnet
+workflow() %>%
+    add_recipe(recipe_spec_final) %>%
+    add_model(model_spec_glmnet) -> workflow_glmnet
+workflow_glmnet %>% 
+  fit(data = train_tbl) -> workflow_trained
+workflow_trained %>% 
+    predict(test_tbl) %>%
+    bind_cols(test_tbl) -> prediction_tbl
+```
+
+```{r glmplumbviz2}
+#new plot with prediction v actual side by side for 2016 onwards
+#to see how good the model we built was against actual data
+plum_rest %>%
+    ggplot(aes(x = date, y = value)) +
+  #can we somehow modify this so the test region is shaded
+  #and train region is not
+  #same problem happens in original scatterplot
+    #geom_rect(xmin = ymd("2016-01-01"),
+              #xmax = ymd("2019-12-31"),
+              #ymin = 0, ymax = max(plum_rest$value),
+              #fill = palette_light()[[4]], alpha = 0.01) +
+    geom_point(alpha = 0.5, color = palette_light()[[1]]) +
+    labs(title = "create efficiency", x = "", y = "%") +
+    geom_point(aes(x = date, y = .pred), data = prediction_tbl, 
+               alpha = 0.5, color = palette_light()[[2]]) +
+    theme_tq()
+```
+
+```{r glmplumbpred}
+#forecasting future data
+# Extract create efficiency index
+plum_rest %>% 
+  tk_index() -> idx
+idx %>%
+  # Get time series summary from index
+  tk_get_timeseries_summary()-> bikes_summary
+idx %>% 
+  tk_make_future_timeseries(n_future = 18000) -> idx_future
+tibble(date = idx_future)  -> future_tbl
+workflow_glmnet %>% 
+    fit(data = plum_rest) %>%
+    predict(future_tbl) %>%
+    bind_cols(future_tbl) -> future_predictions_tbl 
+#forecasting for next 6 months scatterplot
+plum_rest %>%
+    ggplot(aes(x = date, y = value)) +
+  #can we somehow modify this so the test region is shaded
+  #and train region is not
+  #same problem happens in original scatterplot
+    #geom_rect(xmin = ymd("2016-01-01"),
+              #xmax = ymd("2019-12-31"),
+              #ymin = 0, ymax = max(plum_rest$value),
+              #fill = palette_light()[[4]], alpha = 0.01) +
+    geom_point(alpha = 0.5, color = palette_light()[[1]]) +
+    labs(title = "total efficiency for CONTRACT", x = "", y="%") +
+     geom_point(aes(x = date, y = .pred), data = future_predictions_tbl,
+               alpha = 0.5, color = palette_light()[[2]]) +
+    geom_smooth(aes(x = date, y = .pred), data = future_predictions_tbl,
+                method = 'loess') + 
+    theme_tq()
+ggsave("contract_tot_ef_1.png")
+```
+
+####5.2 SES, Holt-Winters time series to predict mean of future Request-Created and Request-Completed Efficiencies
+
+#####TOTAL EFFICIENCY
+```{r total efficiency}
+priority_overall_ts <- priority %>% mutate(year = year(actualcompletiondate))%>%  mutate(perc_totaleffi = totaleffi /round(mean(totaleffi))) %>% select( actualcompletiondate, perc_totaleffi)%>%arrange(actualcompletiondate)
+X<-ts(priority_overall_ts$perc_totaleffi, start = c(2001,1), end = c(2019,12), frequency = 12)
+plot(X, ylab = "Total Efficiency (in %age)")
+overall_split<- ts_split(X)
+overall_training <- overall_split$train
+overall_testing <- overall_split$test
+plot(overall_training); plot(overall_testing)
+#SES_seasonality
+DES.training.Y<-HoltWinters(overall_training, beta = FALSE)
+# plot(DES.training.Y)
+y.DESmodel<-HoltWinters(overall_testing, alpha = DES.training.Y$alpha, gamma = DES.training.Y$gamma, beta = F)
+plot(y.DESmodel)
+y.DESmodel$SSE
+#Holtwinters
+holtWinters.training.Y<-HoltWinters(overall_training)
+plot(holtWinters.training.Y)
+y.HWmodel <- HoltWinters(overall_testing, alpha = holtWinters.training.Y$alpha, beta = holtWinters.training.Y$beta, gamma = holtWinters.training.Y$gamma)
+# x.HWmodel$fitted
+plot(y.HWmodel)
+y.HWmodel$SSE#Use this one
+forecast_values.Y <- forecast(y.DESmodel, h=65)
+predict(holtWinters.training.Y , 65)
+plot(forecast_values.Y, xlab = "Time", ylab = "Overall Total Efficiency (in %age)", main = "Total Efficiency (all workorders)")
+```
+
+#####CREATE EFFICIENCY
+```{r create efficiency}
+priority_overall_ts_ce <- priority %>% mutate(year = year(actualcompletiondate))%>%  mutate(perc_createeffi = createffi /round(mean(createffi))) %>% select(actualcompletiondate, perc_createeffi)%>%arrange(actualcompletiondate)
+Z <- ts(priority_overall_ts_ce$perc_createeffi, start = c(2001,1), end = c(2019,12), frequency = 12)
+plot(Z, ylab = "Create Efficiency (in %age)")
+overall_ce_split<- ts_split(Z)
+overall_ce_training <- overall_ce_split$train
+overall_ce_testing <- overall_ce_split$test
+plot(overall_ce_training); plot(overall_ce_testing)
+ #SES_seasonality
+DES.training.Z<-HoltWinters(overall_ce_training, beta = FALSE)
+# plot(DES.training.Y)
+z.DESmodel<-HoltWinters(overall_ce_testing, alpha = DES.training.Z$alpha, gamma = DES.training.Z$gamma, beta = F)
+plot(z.DESmodel)
+z.DESmodel$SSE
+#Holtwinters
+holtWinters.training.Z<-HoltWinters(overall_ce_training)
+plot(holtWinters.training.Z)
+z.HWmodel <- HoltWinters(overall_ce_testing, alpha = holtWinters.training.Z$alpha, beta = holtWinters.training.Z$beta, gamma = holtWinters.training.Z$gamma)
+# x.HWmodel$fitted
+plot(z.HWmodel)
+z.HWmodel$SSE
+forecast_values.Z <- forecast(z.DESmodel, h=65)
+predict(holtWinters.training.Z , 65)
+plot(forecast_values.Z, xlab = "Time", ylab = "Overall Create Efficiency (in %age)", main = "Create Efficiency(all workorders)")
+```
+
+**Plumbing**
+```{r eftsplumbing}
+priority_plumbing_2 <- priority %>% filter(craftgroup =="PLUMBING/RESTROOM") %>% mutate(year = year(actualcompletiondate))%>%  mutate(perc_totaleffi = totaleffi /round(mean(totaleffi))) %>% select( actualcompletiondate, perc_totaleffi)%>% arrange(actualcompletiondate)
+Y<-ts(priority_plumbing_2$perc_totaleffi, start = c(2001,1), end = c(2019,12), frequency = 12)
+plot(Y)
+sm <- ma(Y, order=3); lines(sm, col = "red")
+
+#The moving average smoother averages the nearest order periods of each observation. As neighbouring observations of a time series are likely to be similar in value, averaging eliminates some of the randomness in the data, leaving a smooth trend-cycle component.
+plot(Y)
+#Split for total efficiency
+plumbing_split<- ts_split(Y)
+plumbing_training <- split_plumbing$train
+plumbing_testing <- split_plumbing$test
+plot(plumbing_training); plot(plumbing_testing)
+
+#SES_seasonality
+ DES.training.Y<-HoltWinters(plumbing_training, beta = FALSE)
+ plot(DES.training.Y)
+ y.DESmodel<-HoltWinters(plumbing_testing, alpha = DES.training.Y$alpha, gamma = DES.training.Y$gamma, beta = F)
+plot(y.DESmodel)
+ y.DESmodel$SSE
+
+#Holtwinters
+holtWinters.training.Y<-HoltWinters(plumbing_training)
+plot(holtWinters.training.Y)
+y.HWmodel <- HoltWinters(plumbing_testing, alpha = holtWinters.training.Y$alpha, beta = holtWinters.training.Y$beta, gamma = holtWinters.training.Y$gamma)
+# x.HWmodel$fitted
+plot(y.HWmodel)
+y.HWmodel$SSE#Use this one
+forecast_values.Y <- forecast(y.DESmodel, h=65) 
+predict(holtWinters.training.Y , 65)
+plot(forecast_values.Y, xlab = "Time", ylab = "Total Efficiency (in %age)", main = "Total Efficiency (Plumbing)")
+```
+
+**Others**
+```{r eftsothers}
+priority_others_2<-priority %>% filter(craftgroup == "OTHER") %>% mutate(year = year(actualcompletiondate))%>%  mutate(perc_totaleffi = totaleffi/round(mean(totaleffi))) %>% select(actualcompletiondate, perc_totaleffi)
+Y<-ts(priority_others_2$perc_totaleffi, start = c(2001,7), end = c(2019,12), frequency = 12)
+plot(Y)
+sm <- ma(Y, order=3); lines(sm, col = "red")
+
+#The moving average smoother averages the nearest order periods of each observation. As neighbouring observations of a time series are likely to be similar in value, averaging eliminates some of the randomness in the data, leaving a smooth trend-cycle component.
+plot(Y)
+#Split for total efficiency
+others_split <- ts_split(Y)
+others_training <- others_split$train
+others_testing <- others_split$test
+plot(others_training); plot(others_testing)
+
+#SES_Seasonality
+DES.training.Y<-HoltWinters(others_training, beta = FALSE)
+plot(DES.training.Y)
+y.DESmodel<-HoltWinters(others_testing,alpha = DES.training.Y$alpha, gamma = DES.training.Y$gamma, beta = F)
+plot(y.DESmodel)
+y.DESmodel$SSE
+
+#holtwinters
+holtWinters.training.Y<-HoltWinters(others_training)
+plot(holtWinters.training.Y)
+y.HWmodel <- HoltWinters(others_testing, alpha = holtWinters.training.Y$alpha, beta = holtWinters.training.Y$beta, gamma = holtWinters.training.Y$gamma)
+# x.HWmodel$fitted
+ plot(y.HWmodel)
+ y.HWmodel$SSE#use this one
+
+#USE HW model for prediction
+forecast_values.Y <- forecast(y.DESmodel, h=65)
+predict(holtWinters.training.Y , 65)
+plot(forecast_values.Y, xlab = "Time", ylab = "Total Efficiency (in %age)", main = "Total Efficiency (Others)")
+```
+
+**Furnitures/Utilities/Appliances**
+```{r eftsfurn}
+priority_furniture_2<-priority %>% filter(craftgroup=="FURNITURES/UTILITIES/APPLIANCES") %>% mutate(year = year(actualcompletiondate))%>%  mutate(perc_totaleffi = totaleffi/round(mean(totaleffi))) %>% select(actualcompletiondate, perc_totaleffi) %>% arrange(actualcompletiondate)
+Y<-ts(priority_furniture_2$perc_totaleffi, start = c(2001,7), end = c(2019,12), frequency = 12)
+plot(Y)
+sm <- ma(Y, order=3); lines(sm, col = "red")
+#The moving average smoother averages the nearest order periods of each observation. As neighbouring observations of a time series are likely to be similar in value, averaging eliminates some of the randomness in the data, leaving a smooth trend-cycle component.
+plot(Y)
+#Split for total efficiency
+furniture_split <- ts_split(Y)
+furniture_training <- furniture_split$train
+furniture_testing <- furniture_split$test
+plot(furniture_training); plot(furniture_testing)
+#SES_Seasonality
+ DES.training.Y<-HoltWinters(furniture_training, beta =  F)
+ plot(DES.training.Y)
+ y.DESmodel<-HoltWinters(furniture_testing,alpha = DES.training.Y$alpha, gamma = DES.training.Y$gamma, beta = F)
+ # plot(y.DESmodel)
+ y.DESmodel$SSE
+#holtwinters
+HoltWinters.training.Y <- HoltWinters(furniture_training)
+plot(holtWinters.training.Y)
+y.HWmodel <- HoltWinters(furniture_testing, alpha = holtWinters.training.Y$alpha, beta = holtWinters.training.Y$beta, gamma = holtWinters.training.Y$gamma)
+plot(y.HWmodel)
+y.HWmodel$SSE#use this one
+forecast_values.Y <- forecast(y.DESmodel, h = 65)
+#forecast_values.Y<-abs(predict(holtWinters.training.Y, 65))
+plot(forecast_values.Y,xlab = "Time", ylab = "Total Efficiency (in %age)", main = "Total Efficiency (Furniture)")
+```
+
+**ELECTRICITY/ENERGY**
+```{r eftselec}
+priority_electricity_2<-priority %>% filter(craftgroup=="ELECTRICITY/ENERGY") %>% mutate(year = year(actualcompletiondate))%>%  mutate(perc_totaleffi = totaleffi/round(mean(totaleffi))) %>% select(actualcompletiondate, perc_totaleffi) %>% arrange(actualcompletiondate)
+Y <- ts(priority_electricity_2$perc_totaleffi, start = c(2001), end = c(2019, 12), frequency = 12)
+plot(Y)
+sm <- ma(Y, order=3); lines(sm, col = "red")
+#The moving average smoother averages the nearest order periods of each observation. As neighbouring observations of a time series are likely to be similar in value, averaging eliminates some of the randomness in the data, leaving a smooth trend-cycle component.
+plot(Y)
+#Split for total efficiency
+electricity_split <- ts_split(Y)
+electricity_training <- electricity_split$train
+electricity_testing <- electricity_split$test
+plot(electricity_training); plot(electricity_testing)
+#SES_smoothing
+DES.training.Y<-HoltWinters(electricity_training, beta = F)
+plot(DES.training.Y)
+y.DESmodel<-HoltWinters(electricity_testing,alpha = DES.training.Y$alpha, gamma = DES.training.Y$gamma, beta = F)
+plot(y.DESmodel)
+y.DESmodel$SSE
+#holtwinters
+HoltWinters.training.Y <- HoltWinters(electricity_training)
+plot(holtWinters.training.Y)
+y.HWmodel <- HoltWinters(electricity_testing, alpha = holtWinters.training.Y$alpha, beta = holtWinters.training.Y$beta, gamma = holtWinters.training.Y$gamma)
+plot(y.HWmodel)
+y.HWmodel$SSE
+forecast_values.Y<- forecast(y.DESmodel, h = 65)
+#forecast_values.Y<-abs(predict(holtWinters.training.Y, 65))
+plot(forecast_values.Y,xlab = "Time", ylab = "Total Efficiency (in %age)", main = "Total Efficiency (Electricity)")
+```
+
+**Outdoors**
+```{r eftsoutdoors}
+priority_outdoors_2<-priority %>% filter(craftgroup=="OUTDOORS") %>% mutate(year = year(actualcompletiondate))%>%  mutate(perc_totaleffi = totaleffi/round(mean(totaleffi))) %>% select(actualcompletiondate, perc_totaleffi) %>% arrange(actualcompletiondate)
+Y<-ts(priority_outdoors_2$perc_totaleffi, start = c(2001, 1), end = c(2019, 12), frequency = 12)
+plot(Y)
+sm <- ma(Y, order=3); lines(sm, col = "red")
+#The moving average smoother averages the nearest order periods of each observation. As neighbouring observations of a time series are likely to be similar in value, averaging eliminates some of the randomness in the data, leaving a smooth trend-cycle component.
+#Split for total efficiency
+outdoors_split <- ts_split(Y)
+outdoors_training <- outdoors_split$train
+outdoors_testing <- outdoors_split$test
+#plot(outdoors_training); plot(outdoors_testing)
+#SES_seasonality
+DES.training.Y<-HoltWinters(outdoors_training, beta = F)
+plot(DES.training.Y)
+y.DESmodel <- HoltWinters(outdoors_testing, gamma = DES.training.Y$gamma)#alpha is 0
+# plot(y.DESmodel)
+y.DESmodel$SSE
+#Holtwinters
+HoltWinters.training.Y <- HoltWinters(outdoors_training)
+plot(holtWinters.training.Y)
+y.HWmodel <- HoltWinters(outdoors_testing, alpha = holtWinters.training.Y$alpha, beta = holtWinters.training.Y$beta, gamma = holtWinters.training.Y$gamma)
+y.HWmodel$SSE #Use this one
+ plot(y.HWmodel)
+forecast_values.Y<- forecast(y.DESmodel, h = 65)
+#forecast_values.Y<-abs(predict(holtWinters.training.Y, 65))
+plot(forecast_values.Y, xlab = "Time", ylab = "Total Efficiency (in %age)", main = "Total Efficiency (Outdoors)")
+```
+
+**HEALTH/SAFETY/SECURITY**
+```{r eftshealth}
+priority_health_2<-priority %>% filter(craftgroup=="HEALTH/SAFETY/SECURITY") %>% mutate(year = year(actualcompletiondate))%>%  mutate(perc_totaleffi = totaleffi/round(mean(totaleffi))) %>% select(actualcompletiondate, perc_totaleffi) %>% arrange(actualcompletiondate)
+Y<-ts(priority_health_2$perc_totaleffi, start = c(2001,1), end = c(2019,12), frequency = 12)
+plot(Y)
+sm <- ma(Y, order=3); lines(sm, col = "red")
+#The moving average smoother averages the nearest order periods of each observation. As neighbouring observations of a time series are likely to be similar in value, averaging eliminates some of the randomness in the data, leaving a smooth trend-cycle component.
+plot(Y)
+#Split for total efficiency
+health_split <- ts_split(Y)
+health_training <- health_split$train
+health_testing <- health_split$test
+plot(health_training); plot(health_testing)
+#SES_seasoanlity
+DES.training.Y<-HoltWinters(health_training, beta = F)
+plot(DES.training.Y)
+y.DESmodel<-HoltWinters(health_testing,alpha = DES.training.Y$alpha, gamma = DES.training.Y$gamma, beta = F)
+# plot(y.DESmodel)
+y.DESmodel$SSE
+# Holtwinters
+HoltWinters.training.Y <- HoltWinters(health_training)
+plot(holtWinters.training.Y)
+y.HWmodel <- HoltWinters(health_testing, alpha = holtWinters.training.Y$alpha, beta = holtWinters.training.Y$beta, gamma = holtWinters.training.Y$gamma)
+plot(y.HWmodel)
+y.HWmodel$SSE
+forecast_values.Y <- forecast(y.HWmodel, h = 65)
+#forecast_values.Y<-abs(predict(holtWinters.training.Y, 65))
+plot(forecast_values.Y, xlab = "Time", ylab = "Total Efficiency (in %age)", main = "Total Efficiency (Health)")
+```
+
+**EVENT/RECREATION/F&B**
+```{r eftsevent}
+priority_events_2<-priority %>% filter(craftgroup=="EVENT/RECREATION/F&B") %>% mutate(year = year(actualcompletiondate))%>%  mutate(perc_totaleffi = totaleffi/round(mean(totaleffi))) %>% select(actualcompletiondate, perc_totaleffi) %>% arrange(actualcompletiondate)
+Y<-ts(priority_events_2$perc_totaleffi, start = c(2001), end = c(2019, 12), frequency = 12)
+plot(Y)
+sm <- ma(Y, order=3); lines(sm, col = "red")
+#The moving average smoother averages the nearest order periods of each observation. As neighbouring observations of a time series are likely to be similar in value, averaging eliminates some of the randomness in the data, leaving a smooth trend-cycle component.
+plot(Y)
+#Split for total efficiency
+events_split <- ts_split(Y)
+events_training <- events_split$train
+events_testing <- events_split$test
+plot(events_training); plot(events_testing)
+#SES_seasonality
+# DES.training.Y<-HoltWinters(events_training, beta = F)
+# plot(DES.training.Y)
+# y.DESmodel<-HoltWinters(events_testing,alpha = DES.training.Y$alpha, gamma = DES.training.Y$gamma, beta = F)
+# # plot(y.DESmodel)
+# y.DESmodel$SSE
+#Holtwinters
+HoltWinters.training.Y <- HoltWinters(events_training)
+plot(holtWinters.training.Y)
+y.HWmodel <- HoltWinters(events_testing, alpha = holtWinters.training.Y$alpha, beta = holtWinters.training.Y$beta, gamma = holtWinters.training.Y$gamma)
+plot(y.HWmodel)
+y.HWmodel$SSE
+forecast_values.Y<- forecast(y.HWmodel, h = 65)
+#forecast_values.Y<-abs(predict(HoltWinters.training.Y, 65))
+plot(forecast_values.Y, xlab = "Time", ylab = "Total Efficiency (in %age)", main = "Total Efficiency (Events)")
+```
+
+**CLEANING/SANITIZATION**
+```{r eftscleaning}
+priority_cleaning_2<-priority %>% filter(craftgroup=="CLEANING/SANITIZATION") %>% mutate(year = year(actualcompletiondate))%>%  mutate(perc_totaleffi = totaleffi/round(mean(totaleffi))) %>% select(actualcompletiondate, perc_totaleffi) %>% arrange(actualcompletiondate)
+Y<-ts(priority_cleaning_2$perc_totaleffi, start = c(2001), end = c(2019, 12), frequency = 12)
+plot(Y)
+sm <- ma(Y, order=3); lines(sm, col = "red")
+#The moving average smoother averages the nearest order periods of each observation. As neighbouring observations of a time series are likely to be similar in value, averaging eliminates some of the randomness in the data, leaving a smooth trend-cycle component.
+plot(Y)
+#Split for total efficiency
+cleaning_split <- ts_split(Y)
+cleaning_training <- cleaning_split$train
+cleaning_testing <- cleaning_split$test
+plot(cleaning_training); plot(cleaning_testing)
+#SES_smoothing
+DES.training.Y <- HoltWinters(cleaning_training, beta = F)
+plot(DES.training.Y)
+y.DESmodel<-HoltWinters(cleaning_testing,alpha = DES.training.Y$alpha, gamma = DES.training.Y$gamma, beta = F)
+plot(y.DESmodel)
+y.DESmodel$SSE #use this one
+#Holtwinters
+# HoltWinters.training.Y <- HoltWinters(cleaning_training)
+# plot(holtWinters.training.Y)
+# 
+# y.HWmodel <- HoltWinters(cleaning_testing, alpha = holtWinters.training.Y$alpha, beta = holtWinters.training.Y$beta, gamma = holtWinters.training.Y$gamma)
+# plot(y.HWmodel)
+# y.HWmodel$SSE
+forecast_values.Y<- forecast(y.DESmodel, h = 65)
+#forecast_values.Y<-abs(predict(HoltWinters.training.Y, 65))
+plot(forecast_values.Y, xlab = "Time", ylab = "Total Efficiency (in %age)", main = "Total Efficiency (Cleaning)")
+```
+
+**CONSTRUCTION/BUILDING**
+```{r eftsconstruction}
+priority_construction_2<-priority %>% filter(craftgroup=="CONSTRUCTION/BUILDING") %>% mutate(year = year(actualcompletiondate))%>%  mutate(perc_totaleffi = totaleffi/round(mean(totaleffi))) %>% select(actualcompletiondate, perc_totaleffi) %>% arrange(actualcompletiondate)
+Y<-ts(priority_construction_2$perc_totaleffi, start = c(2001), end = c(2019, 12), frequency = 12)
+plot(Y)
+sm <- ma(Y, order=3); lines(sm, col = "red")
+#The moving average smoother averages the nearest order periods of each observation. As neighbouring observations of a time series are likely to be similar in value, averaging eliminates some of the randomness in the data, leaving a smooth trend-cycle component.
+plot(Y)
+#Split for total efficiency
+construction_split <- ts_split(Y)
+construction_training <- construction_split$train
+construction_testing <- construction_split$test
+plot(construction_training); plot(construction_testing)
+#SES_smoothing
+DES.training.Y <- HoltWinters(construction_training, beta = F)
+plot(DES.training.Y)
+y.DESmodel <- HoltWinters(construction_testing,alpha = DES.training.Y$alpha, gamma = DES.training.Y$gamma, beta = F)
+plot(y.DESmodel)
+y.DESmodel$SSE
+#Holtwinters
+HoltWinters.training.Y <- HoltWinters(construction_training)
+plot(holtWinters.training.Y)
+y.HWmodel <- HoltWinters(construction_testing, alpha = holtWinters.training.Y$alpha, beta = holtWinters.training.Y$beta, gamma = holtWinters.training.Y$gamma)
+plot(y.HWmodel)
+y.HWmodel$SSE
+forecast_values.Y<- forecast(y.DESmodel, h = 65)
+#forecast_values.Y<-abs(predict(HoltWinters.training.Y, 65))
+plot(forecast_values.Y, xlab = "Time", ylab = "Total Efficiency (in %age)", main = "Total Efficiency (Construction)")
+```
+
+**UNCLEAR/TBD**
+```{r eftsunclear}
+priority_unclear_2<-priority %>% filter(craftgroup=="UNCLEAR/TBD") %>% mutate(year = year(actualcompletiondate))%>%  mutate(perc_totaleffi = totaleffi/round(mean(totaleffi))) %>% select(actualcompletiondate, perc_totaleffi) %>% arrange(actualcompletiondate)
+Y<-ts(priority_unclear_2$perc_totaleffi, start = c(2001), end = c(2019), frequency = 12)
+plot(Y)
+sm <- ma(Y, order=3); lines(sm, col = "red")
+#The moving average smoother averages the nearest order periods of each observation. As neighbouring observations of a time series are likely to be similar in value, averaging eliminates some of the randomness in the data, leaving a smooth trend-cycle component.
+plot(Y)
+#Split for total efficiency
+unclear_split <- ts_split(Y)
+unclear_training <- unclear_split$train
+unclear_testing <- unclear_split$test
+plot(unclear_training); plot(unclear_testing)
+#SES_smoothing
+DES.training.Y <- HoltWinters(unclear_training, beta = F)
+plot(DES.training.Y)
+y.DESmodel <- HoltWinters(unclear_testing, gamma = DES.training.Y$gamma, beta = F)#alpha= 0
+plot(y.DESmodel)
+y.DESmodel$SSE
+#holtwinters
+# HoltWinters.training.Y <- HoltWinters(unclear_training)
+# plot(holtWinters.training.Y)
+# 
+# y.HWmodel <- HoltWinters(unclear_testing, alpha = holtWinters.training.Y$alpha, beta = holtWinters.training.Y$beta, gamma = holtWinters.training.Y$gamma)
+# y.HWmodel$SSE
+# plot(y.HWmodel)
+forecast_values.Y <- forecast(y.DESmodel, h = 65)
+#forecast_values.Y<-abs(predict(HoltWinters.training.Y, 65))
+plot(forecast_values.Y, xlab = "Time", ylab = "Total Efficiency (in %age)", main = "Total Efficiency (Unclear)")
+```
+
+**IT/NETWORK**
+```{r eftsITNetwork}
+priority_network_2<-priority %>% filter(craftgroup=="IT/NETWORK") %>% mutate(year = year(actualcompletiondate))%>%  mutate(perc_totaleffi = totaleffi/round(mean(totaleffi))) %>% select(actualcompletiondate, perc_totaleffi) %>% arrange(actualcompletiondate)
+Y<-ts(priority_network_2$perc_totaleffi, start = c(2001), end = c(2019, 12), frequency = 12)
+plot(Y)
+sm <- ma(Y, order=3); lines(sm, col = "red")
+#The moving average smoother averages the nearest order periods of each observation. As neighbouring observations of a time series are likely to be similar in value, averaging eliminates some of the randomness in the data, leaving a smooth trend-cycle component.
+plot(Y)
+#Split for total efficiency
+network_split <- ts_split(Y)
+network_training <- network_split$train
+network_testing <- network_split$test
+plot(network_training); plot(network_testing)
+#SES_smoothing
+DES.training.Y <- HoltWinters(network_training, beta = F)
+plot(DES.training.Y)
+y.DESmodel <- HoltWinters(network_testing,alpha = DES.training.Y$alpha, gamma = DES.training.Y$gamma, beta = F)
+plot(y.DESmodel)
+y.DESmodel$SSE
+#holtwinters
+HoltWinters.training.Y <- HoltWinters(network_training)
+plot(holtWinters.training.Y)
+y.HWmodel <- HoltWinters(network_testing, alpha = holtWinters.training.Y$alpha, beta = holtWinters.training.Y$beta, gamma = holtWinters.training.Y$gamma)
+plot(y.HWmodel)
+y.HWmodel$SSE
+forecast_values.Y<- forecast(y.DESmodel, h = 65)
+#forecast_values.Y<-abs(predict(HoltWinters.training.Y, 65))
+plot(forecast_values.Y, xlab = "Time", ylab = "Total Efficiency (in %age)", main = "Total Efficiency (IT/Network)")
+```
+
+**VEHICLE/TRANSPORTATION/DELIVERY**
+```{r eftstransport}
+priority_transport_2<-priority %>% filter(craftgroup=="VEHICLE/TRANSPORTATION/DELIVERY") %>% mutate(year = year(actualcompletiondate))%>%  mutate(perc_totaleffi = totaleffi/round(mean(totaleffi))) %>% select(actualcompletiondate, perc_totaleffi) %>% arrange(actualcompletiondate)
+Y<-ts(priority_transport_2$perc_totaleffi, start = c(2001), end = c(2019, 12), frequency = 12)
+plot(Y)
+sm <- ma(Y, order=3); lines(sm, col = "red")
+#The moving average smoother averages the nearest order periods of each observation. As neighbouring observations of a time series are likely to be similar in value, averaging eliminates some of the randomness in the data, leaving a smooth trend-cycle component.
+plot(Y)
+#Split for total efficiency
+transport_split <- ts_split(Y)
+transport_training <- transport_split$train
+transport_testing <- transport_split$test
+plot(transport_training); plot(transport_testing)
+#SES_seasonality
+DES.training.Y <- HoltWinters(transport_training, beta = F)
+plot(DES.training.Y)
+y.DESmodel <- HoltWinters(transport_testing,alpha = DES.training.Y$alpha, gamma = DES.training.Y$gamma, beta = F)
+plot(y.DESmodel)
+y.DESmodel$SSE
+#Holtwinters
+HoltWinters.training.Y <- HoltWinters(transport_training )
+plot(holtWinters.training.Y)
+y.HWmodel <- HoltWinters(transport_testing, alpha = holtWinters.training.Y$alpha, beta = holtWinters.training.Y$beta, gamma = holtWinters.training.Y$gamma)
+plot(y.HWmodel)
+y.HWmodel$SSE
+forecast_values.Y <- forecast(y.HWmodel, h = 65)
+#forecast_values.Y<-abs(predict(HoltWinters.training.Y, 65))
+plot(forecast_values.Y,xlab = "Time", ylab = "Total Efficiency (in %age)", main = "Total Efficiency (Transport)")
+```
+
+**PLANT**
+```{r eftsplant}
+priority_plant_2<-priority %>% filter(craftgroup=="PLANT/MATERIALS") %>% mutate(year = year(actualcompletiondate))%>%  mutate(perc_totaleffi = totaleffi/round(mean(totaleffi))) %>% select(actualcompletiondate, perc_totaleffi) %>% arrange(actualcompletiondate)
+Y<-ts(priority_plant_2$perc_totaleffi, start = c(2001), end = c(2019, 12), frequency = 12)
+plot(Y)
+sm <- ma(Y, order=3); lines(sm, col = "red")
+#The moving average smoother averages the nearest order periods of each observation. As neighbouring observations of a time series are likely to be similar in value, averaging eliminates some of the randomness in the data, leaving a smooth trend-cycle component.
+plot(Y)
+#Split for total efficiency
+plant_split <- ts_split(Y)
+plant_training <- plant_split$train
+plant_testing <- plant_split$test
+plot(plant_training); plot(plant_testing)
+#SES_sealsonality
+DES.training.Y <- HoltWinters(plant_training, beta = F)
+plot(DES.training.Y)
+y.DESmodel <- HoltWinters(plant_testing, alpha = DES.training.Y$alpha, gamma = DES.training.Y$gamma, beta = F)
+plot(y.DESmodel)
+y.DESmodel$SSE
+#Holtwinters
+HoltWinters.training.Y <- HoltWinters(plant_training)
+plot(holtWinters.training.Y)
+y.HWmodel <- HoltWinters(plant_testing, alpha = holtWinters.training.Y$alpha, beta = holtWinters.training.Y$beta, gamma = holtWinters.training.Y$gamma)
+plot(y.HWmodel)
+y.HWmodel$SSE
+forecast_values.Y<- forecast(y.DESmodel, h = 65)
+#forecast_values.Y<-abs(predict(HoltWinters.training.Y, 65))
+plot(forecast_values.Y, xlab = "Time", ylab = "Total Efficiency (in %age)", main = "Total Efficiency (Plant)")
+```
+
+**ADMIN**
+```{r eftsadmin}
+priority_admin_2<-priority %>% filter(craftgroup=="VEHICLE/TRANSPORTATION/DELIVERY") %>% mutate(year = year(actualcompletiondate))%>%  mutate(perc_totaleffi = totaleffi/round(mean(totaleffi))) %>% select(actualcompletiondate, perc_totaleffi) %>% arrange(actualcompletiondate)
+Y<-ts(priority_admin_2$perc_totaleffi, start = c(2001), end = c(2019, 12), frequency = 12)
+plot(Y)
+sm <- ma(Y, order=3); lines(sm, col = "red")
+#The moving average smoother averages the nearest order periods of each observation. As neighbouring observations of a time series are likely to be similar in value, averaging eliminates some of the randomness in the data, leaving a smooth trend-cycle component.
+plot(Y)
+#Split for total efficiency
+admin_split <- ts_split(Y)
+admin_training <- admin_split$train
+admin_testing <- admin_split$test
+plot(admin_training); plot(admin_testing)
+#SES_seasonality
+DES.training.Y <- HoltWinters(admin_training, beta = F)
+plot(DES.training.Y)
+y.DESmodel <- HoltWinters(admin_testing, alpha = DES.training.Y$alpha, gamma = DES.training.Y$gamma, beta = F)
+plot(y.DESmodel)
+y.DESmodel$SSE
+#Holtwinters
+HoltWinters.training.Y <- HoltWinters(admin_training)
+plot(holtWinters.training.Y)
+y.HWmodel <- HoltWinters(admin_testing, alpha = holtWinters.training.Y$alpha, beta = holtWinters.training.Y$beta, gamma = holtWinters.training.Y$gamma)
+plot(y.HWmodel)
+y.HWmodel$SSE
+forecast_values.Y<- forecast(y.HWmodel, h = 65)
+#forecast_values.Y<-abs(predict(HoltWinters.training.Y, 65))
+plot(forecast_values.Y, xlab = "Time", ylab = "Total Efficiency (in %age)", main = "Total Efficiency (Admin)")
+```
+
+**PREVENTIVE/SCHEDULED**
+```{r eftsps}
+priority_ps_2<-priority %>% filter(craftgroup=="PREVENTIVE/SCHEDULED") %>% mutate(year = year(actualcompletiondate))%>%  mutate(perc_totaleffi = totaleffi/round(mean(totaleffi))) %>% select(actualcompletiondate, perc_totaleffi) %>% arrange(actualcompletiondate)
+Y<-ts(priority_ps_2$perc_totaleffi, start = c(2001), end = c(2019, 12), frequency = 12)
+plot(Y)
+sm <- ma(Y, order=3); lines(sm, col = "red")
+#The moving average smoother averages the nearest order periods of each observation. As neighbouring observations of a time series are likely to be similar in value, averaging eliminates some of the randomness in the data, leaving a smooth trend-cycle component.
+plot(Y)
+#Split for total efficiency
+ps_split <- ts_split(Y)
+ps_training <- ps_split$train
+ps_testing <- ps_split$test
+plot(ps_training); plot(ps_testing)
+#SES_seasonality
+DES.training.Y <- HoltWinters(ps_training, beta = F)
+plot(DES.training.Y)
+y.DESmodel <- HoltWinters(ps_testing, alpha = DES.training.Y$alpha, gamma = DES.training.Y$gamma, beta = F)
+plot(y.DESmodel)
+y.DESmodel$SSE
+#Holtwinters
+HoltWinters.training.Y <- HoltWinters(ps_training)
+plot(holtWinters.training.Y)
+y.HWmodel <- HoltWinters(ps_testing, alpha = holtWinters.training.Y$alpha, beta = holtWinters.training.Y$beta,gamma =  holtWinters.training.Y$gamma)
+plot(y.HWmodel)
+y.HWmodel$SSE
+forecast_values.Y <- forecast(y.DESmodel, h = 65)
+#forecast_values.Y<-abs(predict(HoltWinters.training.Y, 65))
+plot(forecast_values.Y, xlab = "Time", ylab = "Total Efficiency (in %age)", main = "Total Efficiency (Preventive/Scheduled)")
+```
+
+**SOS**
+```{r eftsSOS}
+priority_sos_2<-priority %>% filter(craftgroup=="SOS") %>% mutate(year = year(actualcompletiondate))%>%  mutate(perc_totaleffi = totaleffi/round(mean(totaleffi))) %>% select(actualcompletiondate, perc_totaleffi) %>% arrange(actualcompletiondate)
+Y<-ts(priority_sos_2$perc_totaleffi, start = c(2001), end = c(2019, 12), frequency = 12)
+plot(Y)
+sm <- ma(Y, order=3); lines(sm, col = "red")
+#The moving average smoother averages the nearest order periods of each observation. As neighbouring observations of a time series are likely to be similar in value, averaging eliminates some of the randomness in the data, leaving a smooth trend-cycle component.
+plot(Y)
+#Split for total efficiency
+sos_split <- ts_split(Y)
+sos_training <- sos_split$train
+sos_testing <- sos_split$test
+plot(sos_training); plot(sos_testing)
+#SES_seasonality
+DES.training.Y <- HoltWinters(sos_training, beta = F)
+plot(DES.training.Y)
+y.DESmodel <- HoltWinters(sos_testing, alpha = DES.training.Y$alpha, gamma = DES.training.Y$gamma, beta = F)
+plot(y.DESmodel)
+y.DESmodel$SSE
+#Holtwinters
+HoltWinters.training.Y <- HoltWinters(sos_training)
+plot(holtWinters.training.Y)
+y.HWmodel <- HoltWinters(sos_testing, alpha = holtWinters.training.Y$alpha, beta = holtWinters.training.Y$beta, gamma = holtWinters.training.Y$gamma)
+plot(y.HWmodel)
+y.HWmodel$SSE
+forecast_values.Y<- forecast(y.HWmodel, h = 65)
+#forecast_values.Y<-abs(predict(HoltWinters.training.Y, 65))
+plot(forecast_values.Y, xlab = "Time", ylab = "Total Efficiency (in %age)", main = "Total Efficiency (SOS)")
+```
+
+**INSPECTION**
+```{r eftsinspection}
+priority_inspection_2<-priority %>% filter(craftgroup=="INSPECTION") %>% mutate(year = year(actualcompletiondate))%>%  mutate(perc_totaleffi = totaleffi/round(mean(totaleffi))) %>% select(actualcompletiondate, perc_totaleffi) %>% arrange(actualcompletiondate)
+Y<-ts(priority_inspection_2$perc_totaleffi, start = c(2001), end = c(2019, 12), frequency = 12)
+plot(Y)
+sm <- ma(Y, order=3); lines(sm, col = "red")
+#The moving average smoother averages the nearest order periods of each observation. As neighbouring observations of a time series are likely to be similar in value, averaging eliminates some of the randomness in the data, leaving a smooth trend-cycle component.
+plot(Y)
+#Split for total efficiency
+inspection_split <- ts_split(Y)
+inspection_training <-inspection_split$train
+inspection_testing <-inspection_split$test
+plot(inspection_training); plot(inspection_testing)
+#SES_seasonality
+DES.training.Y <- HoltWinters(inspection_training, beta = F)
+plot(DES.training.Y)
+y.DESmodel <- HoltWinters(inspection_testing, alpha = DES.training.Y$alpha, gamma = DES.training.Y$gamma, beta = F)
+plot(y.DESmodel)
+y.DESmodel$SSE
+#holtwinters
+HoltWinters.training.Y <- HoltWinters(inspection_training)
+plot(holtWinters.training.Y)
+y.HWmodel <- HoltWinters(inspection_testing, alpha = holtWinters.training.Y$alpha, beta = holtWinters.training.Y$beta, gamma = holtWinters.training.Y$gamma)
+plot(y.HWmodel); y.HWmodel$SSE
+forecast_values.Y<- forecast(y.DESmodel, h = 65)
+#forecast_values.Y<-abs(predict(HoltWinters.training.Y, 65))
+plot(forecast_values.Y, xlab = "Time", ylab = "Total Efficiency (in %age)", main = "Total Efficiency (Inspection)")
+```
+
+**CONTRACT**
+```{r eftscontract}
+priority_contract_2<-priority %>% filter(craftgroup=="CONTRACT") %>% mutate(year = year(actualcompletiondate))%>%  mutate(perc_totaleffi = totaleffi/round(mean(totaleffi))) %>% select(actualcompletiondate, perc_totaleffi) %>% arrange(actualcompletiondate)
+Y<-ts(priority_contract_2$perc_totaleffi, start = c(2001), end = c(2019, 12), frequency = 12)
+plot(Y)
+sm <- ma(Y, order=3); lines(sm, col = "red")
+#The moving average smoother averages the nearest order periods of each observation. As neighbouring observations of a time series are likely to be similar in value, averaging eliminates some of the randomness in the data, leaving a smooth trend-cycle component.
+plot(Y)
+#Split for total efficiency
+contract_split <- ts_split(Y)
+contract_training <-contract_split$train
+contract_testing <-contract_split$test
+plot(contract_training); plot(contract_testing)
+#SES_seasonality
+DES.training.Y <- HoltWinters(contract_training, beta = F)
+plot(DES.training.Y)
+y.DESmodel <- HoltWinters(contract_testing, alpha = DES.training.Y$alpha, gamma = DES.training.Y$gamma, beta = F)
+plot(y.DESmodel)
+y.DESmodel$SSE
+#Holtwinters
+HoltWinters.training.Y <- HoltWinters(contract_training)
+plot(holtWinters.training.Y)
+y.HWmodel <- HoltWinters(contract_testing, alpha = holtWinters.training.Y$alpha, beta = holtWinters.training.Y$beta, gamma = holtWinters.training.Y$gamma); y.HWmodel$SSE
+plot(y.HWmodel)
+forecast_values.Y<- forecast(y.HWmodel, h = 65)
+#forecast_values.Y<-abs(predict(HoltWinters.training.Y, 65))
+plot(forecast_values.Y, xlab = "Time", ylab = "Total Efficiency (in %age)", main = "Total Efficiency (Contract)")
+```
+
+**Codes**
+```{r eftscodes}
+priority_codes_2<-priority %>% filter(craftgroup=="CODES") %>% mutate(year = year(actualcompletiondate))%>%  mutate(perc_totaleffi = totaleffi/round(mean(totaleffi))) %>% select(actualcompletiondate, perc_totaleffi) %>% arrange(actualcompletiondate)
+Y<-ts(priority_codes_2$perc_totaleffi, start = c(2001), end = c(2019, 12), frequency = 12)
+plot(Y)
+sm <- ma(Y, order=3); lines(sm, col = "red")
+#The moving average smoother averages the nearest order periods of each observation. As neighbouring observations of a time series are likely to be similar in value, averaging eliminates some of the randomness in the data, leaving a smooth trend-cycle component.
+plot(Y)
+#Split for total efficiency
+codes_split <- ts_split(Y)
+codes_training <-codes_split$train
+codes_testing <-codes_split$test
+plot(codes_training); plot(codes_testing)
+#SES_seasonality
+DES.training.Y <- HoltWinters(codes_training, beta = F)
+plot(DES.training.Y)
+y.DESmodel <- HoltWinters(codes_testing, alpha = DES.training.Y$alpha, gamma = DES.training.Y$gamma, beta = F)
+plot(y.DESmodel)
+y.DESmodel$SSE
+#holtwinters
+HoltWinters.training.Y <- HoltWinters(codes_training)
+plot(holtWinters.training.Y)
+y.HWmodel <- HoltWinters(codes_testing, alpha = holtWinters.training.Y$alpha, beta= holtWinters.training.Y$beta, gamma = holtWinters.training.Y$gamma)
+plot(y.HWmodel);y.HWmodel$SSE
+forecast_values.Y<- forecast(y.DESmodel, h = 65)
+plot(forecast_values.Y, xlab = "Time", ylab = "Total Efficiency (in %age)", main = "Total Efficiency (Codes)")
+#forecast_values.Y<-abs(predict(HoltWinters.training.Y, 65))
+```
